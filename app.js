@@ -1,6 +1,7 @@
 (function () {
   var STORE_KEY = "xingguang-workbench-v2";
   var QB_VERSION = "2026-07-31-v1"; /* 题库版本号，变更时自动刷新题库 */
+  var HOTSPOT_VERSION = "2026-07-31-v2"; /* 时政卡片版本号，变更时自动补充热点内容 */
   var today = new Date().toISOString().slice(0, 10);
 
   var sections = ["常识", "言语", "数量", "判断", "资料", "政治理论"];
@@ -17,6 +18,7 @@
     "home": "【星光不负赶路人】",
     "daily": "时政精析",
     "practice": "越做越行",
+    "practice-session": "本组训练",
     "essay": "申论点拨",
     "mistakes": "错题复盘",
     "knowledge": "知识导入"
@@ -25,6 +27,7 @@
   var state = loadState();
   var radarChart = null;
   var deferredInstallPrompt = null;
+  var currentView = "home";
 
   document.addEventListener("DOMContentLoaded", function () {
     bindNavigation();
@@ -41,6 +44,8 @@
     return {
       lastHotspotDate: "",
       hotspots: [],
+      hotspotVersion: HOTSPOT_VERSION,
+      hotspotBatchIndex: 0,
       qbVersion: QB_VERSION,
       questions: seedQuestions(),
       essays: seedEssays(),
@@ -65,9 +70,16 @@
       var def = defaultState();
       /* 题库版本变更时，自动刷新题库但保留用户练习数据和错题 */
       var needRefresh = parsed.qbVersion !== QB_VERSION;
+      var needHotspotRefresh = parsed.hotspotVersion !== HOTSPOT_VERSION;
+      var savedHotspots = parsed.hotspots || [];
+      if (needHotspotRefresh) {
+        savedHotspots = seedHotspots(today, 0).concat(savedHotspots.filter(function (item) { return !item.auto; }));
+      }
       return {
         lastHotspotDate: parsed.lastHotspotDate || "",
-        hotspots: parsed.hotspots || [],
+        hotspots: savedHotspots,
+        hotspotVersion: HOTSPOT_VERSION,
+        hotspotBatchIndex: parsed.hotspotBatchIndex || 0,
         qbVersion: QB_VERSION,
         questions: needRefresh ? def.questions : ((parsed.questions && parsed.questions.length > 0) ? parsed.questions : def.questions),
         essays: (parsed.essays && parsed.essays.length > 0) ? parsed.essays : def.essays,
@@ -103,7 +115,11 @@
     });
 
     document.getElementById("backBtn").addEventListener("click", function () {
-      openView("home");
+      if (currentView === "practice-session") {
+        openView("practice");
+      } else {
+        openView("home");
+      }
     });
   }
 
@@ -124,12 +140,14 @@
 
     window.scrollTo(0, 0);
     if (viewId === "home") setTimeout(renderRadar, 60);
+    currentView = viewId;
   }
 
   /* ===== 表单绑定 ===== */
   function bindForms() {
     document.getElementById("generateDailyBtn").addEventListener("click", function () {
-      state.hotspots = seedHotspots(today).concat(state.hotspots.filter(function (item) {
+      state.hotspotBatchIndex = (state.hotspotBatchIndex || 0) + 1;
+      state.hotspots = seedHotspots(today, state.hotspotBatchIndex).concat(state.hotspots.filter(function (item) {
         return item.date !== today || !item.auto;
       }));
       state.lastHotspotDate = today;
@@ -152,7 +170,7 @@
       state.hotspots.unshift({
         id: uid("hot"), date: today, auto: false,
         title: d.title, source: d.source, stem: d.stem, logic: d.logic,
-        vocab: splitTags(d.vocab), analysis: d.analysis, quote: d.quote, countermeasure: d.countermeasure
+        detail: d.detail, vocab: splitTags(d.vocab), analysis: d.analysis, quote: d.quote, countermeasure: d.countermeasure
       });
       e.target.reset();
       saveState(); renderAll();
@@ -321,10 +339,12 @@
   function renderHotspots() {
     var box = document.getElementById("hotspotList");
     box.innerHTML = state.hotspots.map(function (item) {
+      var detail = item.detail || "这条热点需要补充具体内容。你可以点击下方“手动新增热点精析”，把新闻背景、核心事实和政策意义补充进来。";
       return '<article class="content-card">' +
         '<header><div><h3>' + escapeHtml(item.title) + '</h3><span class="meta">' + escapeHtml(item.date) + ' · ' + escapeHtml(item.source || "") + '</span></div>' +
         '<button class="danger-btn" data-delete="hotspots" data-id="' + item.id + '" type="button">删除</button></header>' +
         '<div class="tag-row"><span class="tag">' + escapeHtml(item.logic || "") + '</span>' + (item.auto ? '<span class="tag">今日推送</span>' : '') + renderTags(item.vocab) + '</div>' +
+        '<div class="hotspot-detail"><strong>热点具体内容</strong><p>' + escapeHtml(detail) + '</p></div>' +
         '<div class="analysis-grid">' +
         '<div class="analysis-box"><strong>逻辑填空题干出处</strong><p>' + escapeHtml(item.stem || "") + '</p></div>' +
         '<div class="analysis-box"><strong>逻辑考点分析</strong><p>' + escapeHtml(item.analysis || "") + '</p></div>' +
@@ -492,13 +512,15 @@
     });
     var selected = shuffle(pool).slice(0, 5);
     var box = document.getElementById("practiceBox");
+    var sessionBox = document.getElementById("practiceSessionBox");
 
     if (selected.length === 0) {
       box.innerHTML = '<div class="result-box"><p>当前筛选条件下暂无题目，请切换板块或题型。</p></div>';
       return;
     }
 
-    box.innerHTML = '<form id="practiceForm" class="form-card"><h3>本组训练：' + selected.length + '题</h3>' +
+    box.innerHTML = "";
+    sessionBox.innerHTML = '<form id="practiceForm" class="form-card practice-session-card"><h3>本组训练：' + selected.length + '题</h3>' +
       selected.map(function (q, i) {
         return '<article class="question-card">' +
           '<p><strong>第' + (i + 1) + "题｜" + escapeHtml(q.section) + " · " + escapeHtml(q.type) + "</strong></p>" +
@@ -513,6 +535,7 @@
       e.preventDefault();
       submitPractice(selected, new FormData(e.target));
     });
+    openView("practice-session");
   }
 
   function submitPractice(questions, answers) {
@@ -545,7 +568,7 @@
     });
 
     saveState();
-    document.getElementById("practiceBox").innerHTML = '<div class="form-card"><h3>本组得分：' + correctCount + "/" + questions.length + "</h3>" + html.join("") + "</div>";
+    document.getElementById("practiceSessionBox").innerHTML = '<div class="form-card practice-session-card"><h3>本组得分：' + correctCount + "/" + questions.length + "</h3>" + html.join("") + "</div>";
     renderBadges();
     renderMistakes();
     renderTaxonomy();
@@ -564,40 +587,115 @@
 
   /* ===== 预填充数据 ===== */
 
-  function seedHotspots(date) {
+  function seedHotspots(date, batchIndex) {
+    var pool = hotspotPool();
+    var start = ((batchIndex || 0) * 3) % pool.length;
+    return [0, 1, 2].map(function (offset) {
+      var item = pool[(start + offset) % pool.length];
+      return Object.assign({ id: uid("hot"), date: date, auto: true }, item);
+    });
+  }
+
+  function hotspotPool() {
     return [
       {
-        id: uid("hot"), date: date, auto: true,
-        title: "促进团结奋斗 汇聚磅礴力量——习近平总书记对侨务工作作出重要指示",
-        source: "人民日报评论员文章（2026年7月29日）",
+        title: "促进团结奋斗 汇聚磅礴力量——侨务工作的战略意义",
+        source: "人民日报评论员文章（模拟整理）",
+        detail: "这条热点围绕新时代侨务工作展开，核心是把海外侨胞和归侨侨眷团结起来，服务强国建设、民族复兴大局。材料强调侨务工作不是临时性事务，而是党和国家一项长期性、战略性工作，既关系凝聚侨心侨力，也关系对外交流、民间交往和中国故事传播。",
         stem: "侨务工作是党和国家的一项长期性战略性工作。越是朝着强国建设、民族复兴的目标砥砺前行，越要把广大海外侨胞和归侨侨眷紧密团结起来、力量____起来。",
         logic: "递进",
         vocab: ["凝聚侨心", "磅礴力量", "团结奋斗", "血脉相连", "长期性战略性"],
         analysis: "“越是……越要……”构成递进关系，前后语义同向加重。空处需填入与“团结”语义一致、且能搭配“力量”的动词。“汇聚”比“集中”更强调由散到合的过程，比“聚集”更书面化，符合政论语体。",
-        quote: "潮起海天阔，同心向复兴。新征程上，更好凝聚侨心侨力、促进海内外中华儿女团结奋斗，定能为以中国式现代化全面推进强国建设、民族复兴伟业汇聚磅礴力量。",
-        countermeasure: "坚持为大局服务和为侨服务相统一；用好地缘、亲缘、文缘纽带；完善侨务政策法规，维护侨益；发挥侨胞在共建“一带一路”中的桥梁作用。"
+        quote: "潮起海天阔，同心向复兴。更好凝聚侨心侨力，定能为强国建设、民族复兴伟业汇聚磅礴力量。",
+        countermeasure: "坚持为大局服务和为侨服务相统一；完善侨务政策法规，维护侨益；发挥侨胞在国际交流、经贸合作、文化传播中的桥梁作用。"
       },
       {
-        id: uid("hot"), date: date, auto: true,
-        title: "莫把群众求助当作负面舆情——河南瓜农滞销事件的治理启示",
-        source: "人民日报评论（2026年7月27日）",
+        title: "莫把群众求助当作负面舆情——基层治理的回应能力",
+        source: "人民日报评论（模拟整理）",
+        detail: "这条热点由农产品滞销、群众求助被简单压制等基层治理案例引出。核心问题不是单个事件，而是部分基层工作人员把群众正常诉求误当成“负面舆情”，选择堵嘴而不是解决问题。它反映出基层治理中仍存在怕担责、怕麻烦、重形式轻服务的问题。",
         stem: "面对瓜农的求助信息，村工作人员的第一反应不是下地看烂了多少，不是联系商超找买家，____要求村民“撤回求助信”。不解忧，先堵嘴。不帮忙，反添乱。",
         logic: "转折",
         vocab: ["滞销", "舆情", "懒政", "制度托底", "产销对接"],
-        analysis: "“不是……不是……____”构成反向并列后转折，前两个“不是”排除正常做法，空处应填入与预期相反的动作。“而是”最契合：本该帮忙却选择堵嘴，形成强烈转折。考生需注意“而是”与“而是”的辨析——此处强调行为反转而非因果。",
-        quote: "把群众求助当“负面舆情”，本质上是懒政，怕麻烦、怕担责、怕出事。真正把民生疾苦放在心上，把群众诉求落到实处，才能让问题变得不再是问题。",
-        countermeasure: "加快建设农产品监测预警系统，利用大数据完善产量预测模型；建立产销对接常态化机制；畅通群众诉求表达渠道，把求助信息作为治理信号而非负面舆情。"
+        analysis: "“不是……不是……____”构成反向并列后转折，前两个“不是”排除正常做法，空处应填入与预期相反的动作。“而是”最契合：本该帮忙却选择堵嘴，形成强烈转折。",
+        quote: "把群众求助当“负面舆情”，本质上是懒政。真正把群众诉求落到实处，才能让问题变得不再是问题。",
+        countermeasure: "畅通群众诉求表达渠道；建立农产品产销预警和对接机制；把求助信息视为治理信号，形成快速响应、协同处置、结果反馈闭环。"
       },
       {
-        id: uid("hot"), date: date, auto: true,
-        title: "把善心变成善治——杭州余量食物公益项目的制度启示",
-        source: "人民日报纵论（2026年7月8日）",
+        title: "把善心变成善治——余量食物公益项目的制度启示",
+        source: "人民日报纵论（模拟整理）",
+        detail: "这条热点关注余量食物捐赠、公益盲盒、智能柜领取等城市公益实践。它的重点不是单纯表扬好人好事，而是说明善意要可持续，必须依靠制度设计、数字化流程和监管机制。公益项目既要让捐赠者愿意持续参与，也要让受助者体面领取、安心使用。",
         stem: "政企合作有针对性地弥补了短板，把善心变成善治，让善意拥有更长久的生命力。制度设计让捐助者能够“持续捐赠”，“盲盒+小程序”____让受助者“体面领取”。",
         logic: "并列",
         vocab: ["善治", "余量食物", "政企合作", "体面领取", "制度设计"],
-        analysis: "“让捐助者……”“____让受助者……”构成并列结构，前后主语不同但句式对称。空处需填入连接手段，“则”表示并列中的对比关系，比“就”更正式，比“还”更强调两方面并重。考点：并列关联词的语体色彩与语义轻重。",
-        quote: "慈善的细节里，藏着一座城市的细致与温度。保留食品原包装、监管部门定期抽检、“智能柜+小程序”打通全流程，让每一份食物的来源、去向可监控、可查实。",
-        countermeasure: "推动政企合作弥补公共服务短板；用数字化手段打通资格核验、取餐、溯源全流程；注重受助者尊严保护；建立余量食物捐赠的制度化通道和监管机制。"
+        analysis: "“让捐助者……”“____让受助者……”构成并列结构，前后主语不同但句式对称。空处需填入连接手段，“则”表示并列中的对比关系，比“就”更正式。",
+        quote: "慈善的细节里，藏着一座城市的细致与温度；善治的制度里，蕴含着公共服务的智慧与担当。",
+        countermeasure: "推动政企合作弥补公共服务短板；打通资格核验、取餐、溯源全流程；注重尊严保护；建立余量食物捐赠制度化通道。"
+      },
+      {
+        title: "整治形式主义为基层减负——让干部把时间用在办实事上",
+        source: "新华社评论（模拟整理）",
+        detail: "这条热点聚焦基层减负，针对文山会海、过度留痕、层层加码考核等问题。核心是把基层干部从不必要的事务性负担中解放出来，让更多时间和精力回到走访群众、解决问题、推动落实上。它常与正确政绩观、基层治理能力现代化一起考。",
+        stem: "基层减负不是降低工作标准，____把干部从无效事务中解放出来，让他们把更多精力用在服务群众、解决问题上。",
+        logic: "转折",
+        vocab: ["基层减负", "形式主义", "正确政绩观", "服务群众", "治理效能"],
+        analysis: "前文先否定误解“不是降低标准”，后文给出真正含义，应填“而是”。这是典型“不是……而是……”纠偏结构。",
+        quote: "减负不是减责任，而是减掉形式主义的束缚；松绑不是松劲，而是让基层干部轻装上阵、实干担当。",
+        countermeasure: "精简会议文件和报表台账；规范督查考核；建立基层事项准入机制；用群众满意度和问题解决率检验工作成效。"
+      },
+      {
+        title: "推进人工智能治理——在创新发展与安全底线之间求平衡",
+        source: "时政综合材料（模拟整理）",
+        detail: "这条热点围绕人工智能发展与治理展开。生成式人工智能、算法推荐、深度合成等技术快速发展，既能提高生产效率，也可能带来隐私泄露、信息茧房、虚假内容、算法歧视等风险。治理重点是促进创新和守住底线并重。",
+        stem: "人工智能治理既不能因风险而裹足不前，____不能因追求速度而放松安全底线。",
+        logic: "并列",
+        vocab: ["人工智能治理", "算法安全", "包容审慎", "安全底线", "创新发展"],
+        analysis: "“既不能……____不能……”是并列否定结构，空处应填“也”。两方面共同构成治理边界：既不因噎废食，也不放任风险。",
+        quote: "技术越是向前发展，治理越要同步跟进；唯有让创新有边界、风险有约束，数字文明才能行稳致远。",
+        countermeasure: "完善算法备案和安全评估；加强个人信息保护；建立生成内容标识制度；推动监管沙盒和包容审慎监管。"
+      },
+      {
+        title: "发展新质生产力——从要素驱动转向创新驱动",
+        source: "经济时政材料（模拟整理）",
+        detail: "这条热点围绕新质生产力展开，重点是以科技创新推动产业创新，改造提升传统产业，培育壮大新兴产业和未来产业。它不是简单追求规模扩张，而是强调技术突破、产业升级、绿色转型和高质量发展。",
+        stem: "发展新质生产力，关键不在于简单扩大投入，____在于以科技创新推动产业创新、塑造发展新动能。",
+        logic: "转折",
+        vocab: ["新质生产力", "科技创新", "产业升级", "高质量发展", "新动能"],
+        analysis: "“不在于……____在于……”是典型否定纠正结构，空处用“而”或“而是”最合适，突出发展方式从量的扩张转向质的提升。",
+        quote: "抓住科技创新这个核心变量，才能激活高质量发展的最大增量。",
+        countermeasure: "强化关键核心技术攻关；推动产学研深度融合；加快传统产业数字化绿色化改造；优化创新人才和资本支持机制。"
+      },
+      {
+        title: "城市更新重在以人为本——让老城区既有颜值也有温度",
+        source: "城市治理材料（模拟整理）",
+        detail: "这条热点关注老旧小区改造、城市更新、适老化设施、公共空间优化等内容。城市更新不是大拆大建，而是在尊重历史文脉、回应居民需求的基础上补齐设施短板，让城市更安全、更便利、更宜居。",
+        stem: "城市更新不能只追求外观“焕新”，____要补齐公共服务短板、改善居民真实生活体验。",
+        logic: "递进",
+        vocab: ["城市更新", "以人为本", "适老化改造", "公共服务", "宜居城市"],
+        analysis: "“不能只……____要……”强调由表层外观到深层治理的递进，空处宜填“更”。重点在“更要”之后。",
+        quote: "城市更新的尺度，最终要落在人的感受上；街巷有烟火气，治理才有生命力。",
+        countermeasure: "坚持微改造、渐进式更新；完善停车、养老、托育、无障碍设施；保护历史风貌；建立居民参与和反馈机制。"
+      },
+      {
+        title: "守护粮食安全——把饭碗牢牢端在自己手中",
+        source: "三农时政材料（模拟整理）",
+        detail: "这条热点聚焦粮食安全和耕地保护。面对外部环境变化、极端天气和资源约束，粮食安全既要保数量，也要保质量、保产能。重点包括耕地红线、高标准农田、种业振兴、农业科技和农民种粮收益。",
+        stem: "保障粮食安全，既要守住耕地红线，____要依靠科技提升单产和综合生产能力。",
+        logic: "并列",
+        vocab: ["粮食安全", "耕地红线", "种业振兴", "高标准农田", "农业科技"],
+        analysis: "“既要……____要……”是并列结构，空处填“也”。耕地保护和科技增产是粮食安全的两个支撑点。",
+        quote: "手中有粮，心中不慌；把饭碗牢牢端在自己手中，是应对风险挑战的底气所在。",
+        countermeasure: "严守耕地保护红线；建设高标准农田；推进种业振兴；完善种粮补贴和价格支持；提升农业防灾减灾能力。"
+      },
+      {
+        title: "基层执法既要有力度也要有温度——严格规范公正文明执法",
+        source: "行政执法时政材料（模拟整理）",
+        detail: "这条热点围绕行政执法方式转变展开，强调执法不能只看处罚结果，还要看程序是否规范、裁量是否合理、说理是否充分。尤其在市场监管、城管执法、生态环保等领域，要在维护法治权威的同时体现教育引导和服务意识。",
+        stem: "行政执法既要维护法律权威，____要注重释法说理，让群众在执法过程中感受到公平正义。",
+        logic: "并列",
+        vocab: ["行政执法", "释法说理", "柔性执法", "裁量基准", "公平正义"],
+        analysis: "“既要……____要……”是并列结构，空处填“也”。力度和温度不是对立关系，而是严格规范公正文明执法的两个侧面。",
+        quote: "有力度的执法维护法治权威，有温度的执法赢得群众认同；二者统一，才能提升执法公信力。",
+        countermeasure: "完善行政裁量基准；推行全过程释法说理；落实首违不罚和轻微免罚清单；加强执法监督和案卷评查。"
       }
     ];
   }

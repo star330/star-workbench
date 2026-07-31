@@ -87,9 +87,9 @@
       <section id="view-daily" class="view">
         <div class="section-head">
           <p class="eyebrow">时政热点与逻辑填空精析</p>
-          <h2>每日三条 · 联动言语与申论</h2>
+          <h2>每日三条 · 热点内容 + 言语考点 + 申论表达</h2>
         </div>
-        <button id="generateDailyBtn" class="primary-btn full" type="button">刷新今日时政</button>
+        <button id="generateDailyBtn" class="primary-btn full" type="button">换一批今日时政</button>
         <div id="hotspotList" class="card-list"></div>
         <details class="form-collapse">
           <summary>手动新增热点精析</summary>
@@ -97,6 +97,7 @@
             <div class="form-grid">
               <label>热点标题<input name="title" required placeholder="例如：基层治理数字化提质增效" /></label>
               <label>原文出处<input name="source" placeholder="请粘贴新闻/评论/报告来源" /></label>
+              <label class="wide">热点具体内容<textarea name="detail" rows="4" placeholder="写清楚这条热点具体讲了什么、背景是什么、核心信息是什么"></textarea></label>
               <label class="wide">逻辑填空题干原文<textarea name="stem" rows="3" placeholder="粘贴题干或从热点原文改写的语段"></textarea></label>
               <label>逻辑关系<select name="logic"><option>递进</option><option>转折</option><option>并列</option><option>因果</option><option>解释说明</option><option>对照</option></select></label>
               <label>高频词汇<input name="vocab" placeholder="用顿号或逗号分隔" /></label>
@@ -148,6 +149,15 @@
           <summary>查看全部题库（<span id="questionCount">0</span>题）</summary>
           <div id="questionBank" class="card-list"></div>
         </details>
+      </section>
+
+      <!-- ===== 本组训练 ===== -->
+      <section id="view-practice-session" class="view">
+        <div class="section-head">
+          <p class="eyebrow">本组训练</p>
+          <h2>专注做完这一组，再看解析</h2>
+        </div>
+        <div id="practiceSessionBox" class="practice-box"></div>
       </section>
 
       <!-- ===== 申论点拨 ===== -->

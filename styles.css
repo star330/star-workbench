@@ -568,6 +568,30 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.9rem;
 }
 
+.hotspot-detail {
+  margin: 12px 0;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.06), rgba(56, 189, 248, 0.05)),
+    rgba(255, 255, 255, 0.72);
+}
+
+.hotspot-detail strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 0.86rem;
+}
+
+.hotspot-detail p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
 .analysis-grid {
   display: grid;
   gap: 10px;
@@ -642,6 +666,18 @@ input:focus, select:focus, textarea:focus {
 
 /* ===== 训练区 ===== */
 .practice-box { margin-bottom: 14px; }
+
+.practice-session-card {
+  border-radius: var(--radius);
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow);
+}
+
+.practice-session-card h3 {
+  margin-bottom: 14px;
+  color: var(--accent);
+}
 
 .question-card {
   margin-bottom: 12px;
