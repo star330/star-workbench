@@ -168,7 +168,7 @@
         </div>
         <div class="essay-intro-card">
           <h3>行政执法卷重点能力</h3>
-          <p>围绕依法办事、群众工作、基层治理、公共服务、问题解决、规范表达六类能力进行训练。答题时先找材料事实，再抽象为规范表述，最后回到题干限定。</p>
+          <p>围绕依法办事、群众工作、基层治理、公共服务、问题解决、规范表达六类能力进行训练。每道题均包含完整原文材料与题干要求，先读材料再定位答案，最后看规范作答。</p>
           <div class="essay-types">
             <span class="tag">归纳概括</span>
             <span class="tag">提出对策</span>
@@ -180,9 +180,9 @@
         <div class="essay-flow-card">
           <h3>材料定位法</h3>
           <div class="mini-flow">
-            <span>题干任务</span><span>材料定位</span><span>关键词提炼</span><span>规范改写</span><span>答案成型</span>
+            <span>原文材料</span><span>题干要求</span><span>材料定位</span><span>关键句词</span><span>规范答案</span>
           </div>
-          <p class="flow-note">每个答案点都标注：对应段落 → 关键句子 → 核心词 → 入选原因 → 规范答案</p>
+          <p class="flow-note">每道题完整呈现：原文材料 + 题干要求 → 材料定位 → 关键句 → 关键词 → 入选原因 → 规范答案</p>
         </div>
         <div id="essayList" class="card-list"></div>
         <details class="form-collapse">
@@ -191,12 +191,13 @@
             <div class="form-grid">
               <label>题型<select name="type"><option>归纳概括</option><option>提出对策</option><option>综合分析</option><option>贯彻执行</option><option>文章写作</option></select></label>
               <label>题源<input name="source" placeholder="例如：2023 国考行政执法 / 2024 广东省考" /></label>
-              <label class="wide">题干<textarea name="prompt" rows="2"></textarea></label>
+              <label class="wide">题干要求<textarea name="prompt" rows="3" placeholder="粘贴完整题干，包括分值、字数要求等"></textarea></label>
+              <label class="wide">原文材料<textarea name="material" rows="6" placeholder="粘贴给定资料的完整原文，方便对照定位答案"></textarea></label>
               <label>对应段落<input name="paragraph" placeholder="例如：材料二第3段" /></label>
               <label>对应句子<input name="sentence" placeholder="摘录关键句" /></label>
               <label>关键词<input name="keyword" placeholder="答案点的原词或核心词" /></label>
               <label class="wide">为什么选它<textarea name="reason" rows="2" placeholder="说明该词/句如何对应题干任务"></textarea></label>
-              <label class="wide">规范答案点<textarea name="answer" rows="2" placeholder="把材料语言转化为得分表达"></textarea></label>
+              <label class="wide">规范答案<textarea name="answer" rows="3" placeholder="把材料语言转化为得分表达"></textarea></label>
             </div>
             <button class="primary-btn" type="submit">加入申论库</button>
           </form>
@@ -234,7 +235,7 @@
         </div>
         <div class="essay-intro-card">
           <h3>导入说明</h3>
-          <p>支持导入文本类思维导图或资料说明（TXT、Markdown、JSON、CSV）。图片、PDF、XMind 等文件可先记录文件名与要点。导入后可结合近三到五年国省考趋势做预测和拔高。</p>
+          <p>支持选择 TXT、Markdown、JSON、CSV、PDF、Word、图片、XMind 等资料。文本类文件会读取内容；PDF、Word、图片和 XMind 会先记录文件名与摘要，方便按板块归档复习。</p>
         </div>
         <div id="knowledgeList" class="card-list"></div>
         <details class="form-collapse">
@@ -243,8 +244,8 @@
             <div class="form-grid">
               <label>资料名称<input name="title" required placeholder="例如：资料分析公式思维导图" /></label>
               <label>所属板块<select name="section" id="knowledgeSection"></select></label>
-              <label>导入文件<input id="knowledgeFile" type="file" accept=".txt,.md,.json,.csv" /></label>
-              <label class="wide">内容摘要<textarea name="summary" rows="4" placeholder="可粘贴思维导图文本、公式、易错点或预测方向"></textarea></label>
+              <label>导入文件<input id="knowledgeFile" type="file" accept=".txt,.md,.json,.csv,.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.xmind,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*" /></label>
+              <label class="wide">内容摘要<textarea name="summary" rows="4" placeholder="可粘贴资料要点；如果导入PDF/Word/图片/XMind，建议写清楚这份资料讲什么、重点章节、易错点或预测方向"></textarea></label>
             </div>
             <button class="primary-btn" type="submit">加入知识库</button>
           </form>
@@ -255,6 +256,7 @@
   </div>
 
   <script src="./_shared/js/echarts.min.js"></script>
+  <script src="./_shared/js/pdf.min.js"></script>
   <script src="question-bank-1.js"></script>
   <script src="question-bank-2.js"></script>
   <script src="question-bank-3.js"></script>

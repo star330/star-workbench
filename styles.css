@@ -664,6 +664,126 @@ input:focus, select:focus, textarea:focus {
   color: var(--muted);
 }
 
+/* ===== 申论解析卡片 ===== */
+.essay-card {
+  padding-bottom: 18px;
+}
+
+.essay-label {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.essay-label-answer {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.essay-prompt-box {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.06);
+  border-left: 3px solid #6366f1;
+}
+
+.essay-prompt-box p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.essay-material-box {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.essay-material-text {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.84rem;
+  line-height: 1.75;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.essay-answer-flow {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.essay-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(37, 99, 235, 0.03);
+  border: 1px solid var(--rule);
+}
+
+.essay-step-num {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.essay-step strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.essay-step p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.essay-answer-box {
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.essay-answer-box p {
+  margin: 6px 0 0;
+  font-size: 0.86rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
 /* ===== 训练区 ===== */
 .practice-box { margin-bottom: 14px; }
 

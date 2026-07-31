@@ -2,6 +2,7 @@
   var STORE_KEY = "xingguang-workbench-v2";
   var QB_VERSION = "2026-07-31-v1"; /* 题库版本号，变更时自动刷新题库 */
   var HOTSPOT_VERSION = "2026-07-31-v2"; /* 时政卡片版本号，变更时自动补充热点内容 */
+  var ESSAY_VERSION = "2026-07-31-v1"; /* 申论库版本号，变更时自动刷新申论解析 */
   var today = new Date().toISOString().slice(0, 10);
 
   var sections = ["常识", "言语", "数量", "判断", "资料", "政治理论"];
@@ -47,6 +48,7 @@
       hotspotVersion: HOTSPOT_VERSION,
       hotspotBatchIndex: 0,
       qbVersion: QB_VERSION,
+      essayVersion: ESSAY_VERSION,
       questions: seedQuestions(),
       essays: seedEssays(),
       mistakes: [],
@@ -71,9 +73,14 @@
       /* 题库版本变更时，自动刷新题库但保留用户练习数据和错题 */
       var needRefresh = parsed.qbVersion !== QB_VERSION;
       var needHotspotRefresh = parsed.hotspotVersion !== HOTSPOT_VERSION;
+      var needEssayRefresh = parsed.essayVersion !== ESSAY_VERSION;
       var savedHotspots = parsed.hotspots || [];
       if (needHotspotRefresh) {
         savedHotspots = seedHotspots(today, 0).concat(savedHotspots.filter(function (item) { return !item.auto; }));
+      }
+      var savedEssays = parsed.essays || [];
+      if (needEssayRefresh) {
+        savedEssays = def.essays.concat(savedEssays.filter(function (item) { return !item.auto; }));
       }
       return {
         lastHotspotDate: parsed.lastHotspotDate || "",
@@ -81,8 +88,9 @@
         hotspotVersion: HOTSPOT_VERSION,
         hotspotBatchIndex: parsed.hotspotBatchIndex || 0,
         qbVersion: QB_VERSION,
+        essayVersion: ESSAY_VERSION,
         questions: needRefresh ? def.questions : ((parsed.questions && parsed.questions.length > 0) ? parsed.questions : def.questions),
-        essays: (parsed.essays && parsed.essays.length > 0) ? parsed.essays : def.essays,
+        essays: (savedEssays.length > 0) ? savedEssays : def.essays,
         mistakes: parsed.mistakes || [],
         knowledge: (parsed.knowledge && parsed.knowledge.length > 0) ? parsed.knowledge : def.knowledge,
         mastery: Object.assign(def.mastery, parsed.mastery || {})
@@ -190,7 +198,7 @@
     document.getElementById("essayForm").addEventListener("submit", function (e) {
       e.preventDefault();
       var d = formData(e.target);
-      state.essays.unshift(Object.assign({ id: uid("essay") }, d));
+      state.essays.unshift(Object.assign({ id: uid("essay"), auto: false }, d));
       e.target.reset(); saveState(); renderAll();
     });
 
@@ -201,11 +209,13 @@
       e.target.reset(); saveState(); renderAll();
     });
 
-    document.getElementById("knowledgeForm").addEventListener("submit", function (e) {
+    document.getElementById("knowledgeForm").addEventListener("submit", async function (e) {
       e.preventDefault();
       var form = e.target;
       var d = formData(form);
       var file = document.getElementById("knowledgeFile").files[0];
+      var submitBtn = form.querySelector("button[type='submit']");
+      var oldText = submitBtn ? submitBtn.textContent : "";
 
       function addKnowledge(fileText) {
         state.knowledge.unshift({
@@ -216,12 +226,38 @@
         form.reset(); saveState(); renderAll();
       }
 
-      if (file) {
-        var reader = new FileReader();
-        reader.onload = function () { addKnowledge(String(reader.result || "").slice(0, 12000)); };
-        reader.readAsText(file, "utf-8");
-      } else {
-        addKnowledge("");
+      function isTextLike(fileName) {
+        return /\.(txt|md|json|csv)$/i.test(fileName || "");
+      }
+
+      function isPdf(fileName) {
+        return /\.pdf$/i.test(fileName || "");
+      }
+
+      try {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = file && isPdf(file.name) ? "正在解析PDF..." : "正在导入...";
+        }
+
+        if (file && isTextLike(file.name)) {
+          var text = await readFileAsText(file);
+          addKnowledge(String(text || "").slice(0, 12000));
+        } else if (file && isPdf(file.name)) {
+          var pdfText = await extractPdfText(file);
+          addKnowledge(pdfText);
+        } else if (file) {
+          addKnowledge("【附件资料索引】已选择文件：" + file.name + "。当前版本暂不解析该格式正文，已保存文件名和你填写的摘要。");
+        } else {
+          addKnowledge("");
+        }
+      } catch (err) {
+        addKnowledge("【PDF解析提示】文件已记录，但正文解析失败。可能原因：扫描版PDF没有文字层、文件过大、浏览器限制，或PDF加密。建议在摘要里补充关键页码和重点内容。\n错误信息：" + (err && err.message ? err.message : String(err)));
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = oldText;
+        }
       }
     });
 
@@ -301,6 +337,50 @@
   }
 
   function unique(arr) { return Array.from(new Set(arr.filter(Boolean))); }
+
+  function readFileAsText(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result || ""); };
+      reader.onerror = function () { reject(reader.error || new Error("文件读取失败")); };
+      reader.readAsText(file, "utf-8");
+    });
+  }
+
+  function readFileAsArrayBuffer(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(reader.error || new Error("文件读取失败")); };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function extractPdfText(file) {
+    if (!window.pdfjsLib) {
+      throw new Error("PDF解析库未加载，请确认 _shared/js/pdf.min.js 已上传。");
+    }
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "./_shared/js/pdf.worker.min.js";
+
+    var buffer = await readFileAsArrayBuffer(file);
+    var pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    var maxPages = Math.min(pdf.numPages, 80);
+    var chunks = [];
+
+    for (var pageNum = 1; pageNum <= maxPages; pageNum++) {
+      var page = await pdf.getPage(pageNum);
+      var content = await page.getTextContent();
+      var pageText = content.items.map(function (item) { return item.str || ""; }).join(" ").replace(/\s+/g, " ").trim();
+      if (pageText) chunks.push("【第" + pageNum + "页】" + pageText);
+      if (chunks.join("\n\n").length > 30000) break;
+    }
+
+    var text = chunks.join("\n\n").slice(0, 30000);
+    if (!text) {
+      return "【PDF解析结果】已读取文件：" + file.name + "，但没有提取到可复制文字。它可能是扫描版PDF或图片型PDF，建议在摘要里手动写重点页码和内容。";
+    }
+    return "【PDF解析结果】文件：" + file.name + "；页数：" + pdf.numPages + "页；已提取前" + maxPages + "页可复制文字（最多保留约3万字）。\n\n" + text;
+  }
 
   function ensureDailyHotspots(force) {
     if (force || state.lastHotspotDate !== today || state.hotspots.length === 0) {
@@ -388,16 +468,19 @@
   function renderEssays() {
     var box = document.getElementById("essayList");
     box.innerHTML = state.essays.map(function (item) {
-      return '<article class="content-card">' +
-        '<header><div><h3>' + escapeHtml(item.type) + ' · ' + escapeHtml(item.source || "") + '</h3><span class="meta">' + escapeHtml(item.prompt || "") + '</span></div>' +
+      return '<article class="content-card essay-card">' +
+        '<header><div><h3>' + escapeHtml(item.type) + ' \u00b7 ' + escapeHtml(item.source || "") + '</h3></div>' +
         '<button class="danger-btn" data-delete="essays" data-id="' + item.id + '" type="button">删除</button></header>' +
-        '<div class="analysis-grid">' +
-        '<div class="analysis-box"><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "") + '</p></div>' +
-        '<div class="analysis-box"><strong>关键句</strong><p>' + escapeHtml(item.sentence || "") + '</p></div>' +
-        '<div class="analysis-box"><strong>关键词</strong><p>' + escapeHtml(item.keyword || "") + '</p></div>' +
-        '<div class="analysis-box"><strong>入选原因</strong><p>' + escapeHtml(item.reason || "") + '</p></div>' +
-        '<div class="analysis-box" style="grid-column:1/-1"><strong>规范答案点</strong><p>' + escapeHtml(item.answer || "") + '</p></div>' +
-        '</div></article>';
+        '<div class="essay-prompt-box"><span class="essay-label">题干要求</span><p>' + escapeHtml(item.prompt || "") + '</p></div>' +
+        (item.material ? '<div class="essay-material-box"><span class="essay-label">原文材料</span><div class="essay-material-text">' + escapeHtml(item.material) + '</div></div>' : '') +
+        '<div class="essay-answer-flow">' +
+        '<div class="essay-step"><span class="essay-step-num">1</span><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "") + '</p></div>' +
+        '<div class="essay-step"><span class="essay-step-num">2</span><strong>关键句</strong><p>' + escapeHtml(item.sentence || "") + '</p></div>' +
+        '<div class="essay-step"><span class="essay-step-num">3</span><strong>关键词</strong><p>' + escapeHtml(item.keyword || "") + '</p></div>' +
+        '<div class="essay-step"><span class="essay-step-num">4</span><strong>入选原因</strong><p>' + escapeHtml(item.reason || "") + '</p></div>' +
+        '</div>' +
+        '<div class="essay-answer-box"><span class="essay-label essay-label-answer">规范答案</span><p>' + escapeHtml(item.answer || "") + '</p></div>' +
+        '</article>';
     }).join("");
     bindDeleteButtons();
   }
@@ -736,59 +819,64 @@
   function seedEssays() {
     return [
       {
-        id: uid("essay"),
+        id: uid("essay"), auto: true,
         type: "归纳概括",
-        source: "模拟题（参照2020-2026国考行政执法卷风格）",
-        prompt: "根据给定材料，概括当前基层执法服务中存在的主要问题。",
+        source: "模拟题（参照2023国考行政执法卷风格）",
+        material: "【材料一】\n近年来，随着“放管服”改革深入推进，基层执法服务水平有了明显提升，但群众办事仍面临不少堵点。某市市民王先生反映，他到区政务服务中心办理餐饮店营业执照时，被告知需要先到市场监管所预审，再到城管部门办理门头招牌审批，最后回到政务中心提交材料。“一个证跑了三个地方，同样的身份证复印件交了三份。”王先生无奈地说。\n\n记者走访发现，类似情况并非个例。不少群众反映，窗口服务存在“多头跑”现象，同一事项需要在不同部门之间来回奔波。部分事项要求重复提交材料，身份证、房产证等证件反复复印。此外，办理进度不够透明，群众提交材料后往往只能被动等待，无法实时查询审批进展。有的事项涉及跨部门核验，但由于系统尚未打通，信息只能在部门之间线下流转，进一步拖延了办理时间。\n\n某区政务服务局工作人员坦言：“我们也想让群众少跑路，但有些事项确实需要多部门协同，目前系统对接还不完善，数据共享存在壁垒，短期内很难完全解决。”",
+        prompt: "根据给定资料，概括当前基层执法服务中存在的主要问题。（15分）\n要求：概括准确，条理清楚，语言精练，字数不超过200字。",
         paragraph: "材料一第2段",
         sentence: "群众反映窗口多头跑、材料重复交、办理进度不透明，部分事项需跨部门核验但系统尚未打通。",
         keyword: "多头跑、重复交、不透明、系统未打通",
-        reason: "题干要求概括“问题”，该句直接列举了四类问题表现，每个词对应一个独立的问题维度，是问题类答案的直接得分点。",
-        answer: "1.办事流程不够集成，群众需多头跑动；2.材料重复提交，增加群众负担；3.办理进度公开不足，信息不透明；4.跨部门核验机制不健全，系统未完全打通。"
+        reason: "题干要求概括“问题”，定位到材料一第2段。该段密集列举了四类问题表现：“多头跑”对应流程不集成；“重复提交材料”对应负担加重；“办理进度不够透明”对应信息公开不足；“系统尚未打通”对应跨部门协同障碍。每个词都是独立的问题维度，是归纳概括题的直接得分点。",
+        answer: "1.办事流程不够集成，群众需多头跑动，跨部门来回奔波；2.材料重复提交，身份证等证件反复复印，增加群众负担；3.办理进度公开不足，信息不透明，群众无法实时查询；4.跨部门核验机制不健全，系统未完全打通，数据共享存在壁垒。"
       },
       {
-        id: uid("essay"),
+        id: uid("essay"), auto: true,
         type: "提出对策",
-        source: "模拟题（参照2020-2026国考行政执法卷风格）",
-        prompt: "针对材料中反映的基层执法服务问题，提出改进建议。",
-        paragraph: "材料二第3段、第5段",
-        sentence: "部分基层执法人员服务意识不足，存在重处罚轻教育现象；同时数字化平台建设滞后，数据共享不畅。",
-        keyword: "服务意识不足、重处罚轻教育、数字化滞后、数据共享不畅",
-        reason: "问题反推对策：服务意识不足→加强培训教育；重处罚轻教育→推行柔性执法；数字化滞后→加快平台建设；数据共享不畅→打破信息壁垒。",
-        answer: "1.加强执法队伍服务意识培训，树立执法为民理念；2.推行包容审慎监管和柔性执法，落实首违不罚；3.加快数字化平台建设，推进一网通办；4.建立跨部门数据共享机制，打通信息壁垒。"
+        source: "模拟题（参照2023国考行政执法卷风格）",
+        material: "【材料二】\n在基层执法服务中，队伍建设是关键一环。据了解，部分基层执法人员服务意识不足，存在“重处罚、轻教育”的倾向。在一次执法检查中，某商户因招牌设置不规范被直接处以罚款，执法人员未事先告知整改期限，也未提供指导服务。商户反映：“罚单开得快，但怎么改没人说。”\n\n与此同时，数字化平台建设相对滞后。某区虽然建立了网上办事大厅，但功能有限，很多事项仍需线下办理。不同部门之间的数据共享机制不健全，“信息孤岛”现象依然存在。一位基层干部表示：“我们也有数字化的意愿，但资金和技术人才不足，系统升级进展缓慢。”\n\n今年初，国务院印发文件，要求各地深化“放管服”改革，推行包容审慎监管，建立免罚清单制度，对首次轻微违法行为以教育为主。同时要求加快政务服务数字化转型，推进“一网通办”，实现跨部门数据共享和业务协同。",
+        prompt: "针对资料中反映的基层执法服务问题，提出改进建议。（20分）\n要求：建议具体可行，有针对性，条理清楚，字数不超过300字。",
+        paragraph: "材料二第1段、第2段、第3段",
+        sentence: "部分基层执法人员服务意识不足，存在重处罚轻教育现象；数字化平台建设滞后，数据共享不畅；国务院要求推行包容审慎监管和一网通办。",
+        keyword: "服务意识不足、重处罚轻教育、数字化滞后、数据共享不畅、包容审慎监管、一网通办",
+        reason: "提出对策题的得分逻辑是“问题反推对策”。第1段问题“服务意识不足、重处罚轻教育”→对策“加强培训+推行柔性执法”；第2段问题“数字化滞后、数据共享不畅”→对策“加快平台建设+打破信息壁垒”；第3段政策信号“包容审慎监管、一网通办”→直接转化为对策方向。每个对策都要有明确的对应问题来源。",
+        answer: "1.加强执法队伍服务意识培训，定期开展执法为民理念教育和业务能力培训，树立服务型执法理念；2.推行包容审慎监管和柔性执法，落实首违不罚制度，建立免罚清单，对首次轻微违法以教育提醒为主；3.加快数字化平台建设，完善网上办事大厅功能，推进更多事项线上办理，实现“一网通办”；4.建立跨部门数据共享机制，打破信息孤岛，打通部门间系统壁垒，实现数据协同流转。"
       },
       {
-        id: uid("essay"),
+        id: uid("essay"), auto: true,
         type: "综合分析",
-        source: "模拟题（参照2020-2026国考行政执法卷风格）",
-        prompt: "请分析“执法既要有力度，也要有温度”这句话的内涵。",
-        paragraph: "材料三第4段",
-        sentence: "执法既要有力度，也要有尺度和温度；只有把程序规范、裁量基准和释法说理贯穿全过程，才能让群众感受到公平正义。",
-        keyword: "力度、尺度、温度、程序规范、释法说理",
-        reason: "分析题需拆解关键词并回扣材料。力度=依法严格执法；尺度=裁量基准规范；温度=教育提醒和人性化执法。三者构成递进关系。",
-        answer: "“力度”指依法严格执法，维护法律权威；“尺度”指规范裁量权，做到过罚相当；“温度”指人性化执法，注重教育和疏导。三者统一于严格规范公正文明执法的全过程，程序规范是保障，释法说理是桥梁，最终让群众在每一起执法案件中感受到公平正义。"
+        source: "模拟题（参照2023国考行政执法卷风格）",
+        material: "【材料三】\n2024年，某市城管执法支队在查处一起占道经营案件时，既坚持了执法的“力度”，又展现了执法的“温度”。当事人李阿姨是一位下岗职工，在小区门口摆摊卖水果维持生计。执法队员发现后，没有简单处罚了事，而是耐心向她讲解了城市管理规定，帮助她申请了附近的便民摊位。李阿姨感动地说：“本以为要被罚款，没想到执法人员还帮我找了正规摊位。”\n\n该支队负责人表示：“执法既要有力度，也要有温度。力度体现在严格依法办事，对违法行为不能视而不见；温度体现在人性化执法，要考虑群众的实际困难。我们建立了裁量基准制度，对首次轻微违法以教育提醒为主，对屡教不改的才依法处罚。同时推行执法全过程说理，让当事人明白为什么罚、罚多少、怎么改。”\n\n专家指出，执法的力度和温度并不矛盾。力度是基础，维护法律权威和社会秩序；温度是升华，体现执法为民的本质。只有把程序规范、裁量基准和释法说理贯穿执法全过程，才能让群众在每一起执法案件中感受到公平正义。",
+        prompt: "请结合给定资料，分析“执法既要有力度，也要有温度”这句话的内涵。（15分）\n要求：观点明确，分析透彻，条理清楚，字数不超过250字。",
+        paragraph: "材料三第2段、第3段",
+        sentence: "力度体现在严格依法办事，温度体现在人性化执法；力度是基础，温度是升华；程序规范、裁量基准和释法说理贯穿全过程。",
+        keyword: "力度=严格执法、温度=人性化执法、程序规范、裁量基准、释法说理",
+        reason: "综合分析题需拆解关键词并回扣材料。定位到材料三第2段和第3段，“力度”对应“严格依法办事，维护法律权威”；“温度”对应“人性化执法，考虑群众实际困难”；第3段专家观点给出了二者关系——“力度是基础，温度是升华”，并用“程序规范、裁量基准、释法说理”三个抓手说明如何统一。分析时需点明递进关系，不能只解释词义。",
+        answer: "“力度”指依法严格执法，对违法行为敢于亮剑，维护法律权威和社会秩序，是执法的基础；“温度”指人性化执法，充分考虑群众实际困难，注重教育和疏导，是执法的升华。二者并不矛盾，而是辩证统一：力度是底线保障，温度是价值追求。实现二者的统一，需要把程序规范、裁量基准和释法说理贯穿执法全过程——以程序规范保障公正，以裁量基准实现过罚相当，以释法说理赢得理解，最终让群众在每一起案件中感受到公平正义。"
       },
       {
-        id: uid("essay"),
+        id: uid("essay"), auto: true,
         type: "贯彻执行",
-        source: "模拟题（参照2020-2026国考行政执法卷风格）",
-        prompt: "假如你是某区执法局工作人员，请根据材料，撰写一份关于推进柔性执法的工作方案提纲。",
-        paragraph: "材料四第1段至第3段",
-        sentence: "上级要求各地推行包容审慎监管，建立免罚清单制度，加强执法全过程说理。",
-        keyword: "包容审慎、免罚清单、全过程说理",
-        reason: "贯彻执行题需明确文种（工作方案）、格式要素和正文结构。材料给出了核心措施：免罚清单、全过程说理，需在此基础上补充目标、步骤和保障。",
-        answer: "关于推进柔性执法的工作方案提纲\n一、工作目标：推行包容审慎监管，优化营商环境，提升执法公信力。\n二、主要措施：1.制定并公布免罚清单，明确首违不罚情形；2.推行执法全过程释法说理；3.建立裁量基准动态调整机制；4.加强执法人员柔性执法培训。\n三、实施步骤：动员部署→清单制定→试点推行→全面推广。\n四、保障措施：加强组织领导，强化监督考核，定期评估完善。"
+        source: "模拟题（参照2023国考行政执法卷风格）",
+        material: "【材料四】\n近年来，各级政府高度重视优化营商环境工作。2024年3月，某市政府办公厅印发《关于推行包容审慎监管优化营商环境的实施意见》，要求各区执法部门建立免罚清单制度，对首次轻微违法行为实行“首违不罚”。\n\n意见明确提出：一要梳理编制免罚事项清单，向社会公开；二要推行行政执法全过程说理，在执法文书中说明认定事实、法律依据和裁量理由；三要建立裁量基准动态调整机制，根据执法实践及时优化；四要加强执法人员培训，提升柔性执法能力和水平。\n\n某区执法局李局长在传达会议精神时强调：“推行柔性执法不是放松监管，而是要更加精准、更加科学地执法。各科室要结合自身职责，制定具体实施方案，明确时间节点和责任分工。要先在部分领域开展试点，总结经验后再全面推广。”\n\n据悉，该区计划在食品安全、市容环境、市场监管三个领域先行试点，半年后评估效果，逐步扩展到全部执法领域。",
+        prompt: "假如你是某区执法局工作人员，请根据给定资料，撰写一份关于推进柔性执法的工作方案提纲。（25分）\n要求：内容具体，格式规范，条理清楚，字数不超过400字。",
+        paragraph: "材料四第1段至第4段",
+        sentence: "意见要求建立免罚清单、推行全过程说理、建立裁量基准动态调整机制、加强培训；李局长要求制定实施方案、先试点后推广；试点领域为食品安全、市容环境、市场监管。",
+        keyword: "免罚清单、全过程说理、裁量基准动态调整、培训、试点先行、三领域试点",
+        reason: "贯彻执行题需明确文种（工作方案提纲）、格式要素和正文结构。材料四第2段给出四项核心措施（免罚清单、全过程说理、裁量基准、培训），第3段李局长讲话给出实施要求（制定方案、明确分工、先试点后推广），第4段给出具体试点领域（食品安全、市容环境、市场监管）。需将这些信息组织为“目标—措施—步骤—保障”的工作方案结构。",
+        answer: "关于推进柔性执法的工作方案提纲\n\n一、工作目标：推行包容审慎监管，优化营商环境，提升执法公信力和群众满意度。\n\n二、主要措施：\n1.梳理编制免罚事项清单，明确首违不罚情形，向社会公开；\n2.推行执法全过程释法说理，在执法文书中说明事实、依据和裁量理由；\n3.建立裁量基准动态调整机制，根据执法实践及时优化完善；\n4.加强执法人员柔性执法培训，提升业务能力和服务水平。\n\n三、实施步骤：\n第一阶段：动员部署，制定具体实施方案，明确责任分工；\n第二阶段：在食品安全、市容环境、市场监管三领域先行试点；\n第三阶段：半年后评估试点效果，总结经验；\n第四阶段：逐步推广至全部执法领域。\n\n四、保障措施：加强组织领导，强化监督检查，定期评估完善。"
       },
       {
-        id: uid("essay"),
+        id: uid("essay"), auto: true,
         type: "文章写作",
-        source: "模拟题（参照2020-2026国考行政执法卷风格）",
-        prompt: "请结合给定材料，以“把善心变成善治”为主题，写一篇议论文。",
-        paragraph: "材料五全文",
+        source: "模拟题（参照2023国考行政执法卷风格）",
+        material: "【材料五】\n在某市老城区，一家爱心企业每天将未售完的面包和糕点捐赠给社区“爱心食物柜”，供有需要的居民免费领取。起初，这项公益活动遇到了不少困难：捐赠食物的安全如何保障？领取者的隐私如何保护？如何避免浪费？\n\n后来，该市民政局牵头搭建了“政企合作+数字赋能”的公益平台。企业通过小程序登记捐赠信息，社区工作人员负责验收和分发，智能柜实现了24小时自助领取。平台还引入了食品安全溯源系统，每一份食物都有“身份证”，可以追溯到生产、运输、存储的全过程。\n\n一位经常来领取食物的外卖骑手说：“以前不好意思去领救助，现在用手机扫码就能取，不用和任何人打交道，很有尊严。”社区负责人介绍：“智能柜保护了领取者的隐私，让他们体面地接受帮助。运行一年来，已分发食物5000余份，惠及300多个家庭，没有发生一起食品安全问题。”\n\n该市还出台了《关于鼓励社会力量参与公益慈善的若干措施》，从税收优惠、场地支持、表彰激励等方面为爱心企业和个人提供政策保障。一位参与捐赠的企业负责人表示：“有了政府的支持和规范，我们做公益更有底气，也更有持续性。”\n\n政企合作有针对性地弥补了短板，把善心变成善治，让善意拥有更长久的生命力。慈善的细节里，藏着一座城市的细致与温度。",
+        prompt: "请结合给定资料，以“把善心变成善治”为主题，写一篇议论文。（40分）\n要求：（1）自选角度，立意明确；（2）联系实际，不拘泥于资料；（3）思路清晰，语言流畅；（4）字数1000-1200字。",
+        paragraph: "材料五全文（第1段问题引入、第2段政企合作方案、第3段受助者反馈、第4段政策保障、第5段总结升华）",
         sentence: "政企合作有针对性地弥补了短板，把善心变成善治，让善意拥有更长久的生命力。慈善的细节里，藏着一座城市的细致与温度。",
-        keyword: "善心、善治、制度设计、政企合作、温度",
-        reason: "大作文需从材料提炼立意：善心是出发点，善治是落脚点，制度设计是桥梁。论点应回扣材料主线，论证用案例+政策+对策三类支撑。",
-        answer: "立意：把善心变成善治，制度设计是关键桥梁。\n分论点一：善心是治理的温度底色，需要被呵护和激发（材料案例：爱心企业捐赠余量食物）。\n分论点二：善治是善心的制度化升华，让善意可持续（材料案例：智能柜+小程序打通全流程，受助者体面领取）。\n分论点三：从善心到善治，需要政企协同和制度创新（对策：完善制度供给、数字化赋能、注重尊严保护）。\n金句：慈善的细节里，藏着一座城市的细致与温度；善治的制度里，蕴含着一个社会的智慧与担当。"
+        keyword: "善心、善治、制度设计、政企合作、数字赋能、尊严保护、政策保障",
+        reason: "大作文需从材料提炼立意。材料五第1段提出问题（善心如何落地），第2-4段给出路径（政企合作+数字赋能+政策保障），第5段点题“把善心变成善治”。立意应为：善心是出发点，善治是落脚点，制度设计是桥梁。分论点一从“善心需要被呵护”切入（材料案例：企业主动捐赠），分论点二从“善治让善意可持续”切入（材料案例：智能柜+溯源系统+尊严保护），分论点三从“制度创新是关键”切入（材料案例：政策保障措施）。论证用材料案例+政策+对策三类支撑。",
+        answer: "【立意】把善心变成善治，制度设计是关键桥梁。\n\n【标题示例】以制度之笔，绘善治之美\n\n【分论点一】善心是治理的温度底色，需要被呵护和激发。材料中爱心企业主动捐赠余量食物，体现了社会的善意底色。但善心若缺乏引导，容易陷入“好心办坏事”的困境——食品安全无保障、领取者隐私被曝光。因此，善心需要被制度呵护，才能转化为有效供给。\n\n【分论点二】善治是善心的制度化升华，让善意可持续。材料中“政企合作+数字赋能”模式是善治的生动实践：小程序登记解决信息不对称，智能柜实现24小时自助领取，溯源系统保障食品安全，扫码领取保护受助者尊严。这些制度设计让善意拥有了可复制、可持续的载体。\n\n【分论点三】从善心到善治，需要政企协同和制度创新。材料中政府出台《若干措施》，从税收优惠、场地支持、表彰激励等方面提供政策保障，让企业“更有底气、更有持续性”。这启示我们：政府要当好“搭台者”，以制度供给激发社会力量参与治理的活力。\n\n【金句】慈善的细节里，藏着一座城市的细致与温度；善治的制度里，蕴含着一个社会的智慧与担当。把善心变成善治，让善意拥有更长久的生命力。"
       }
     ];
   }

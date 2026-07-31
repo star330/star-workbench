@@ -1,4 +1,4 @@
-const CACHE_NAME = "xingguang-workbench-cache-v4";
+const CACHE_NAME = "xingguang-workbench-cache-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const ASSETS = [
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./_shared/js/echarts.min.js",
+  "./_shared/js/pdf.min.js",
+  "./_shared/js/pdf.worker.min.js",
   "./question-bank-1.js",
   "./question-bank-2.js",
   "./question-bank-3.js",
