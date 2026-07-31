@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="星光工作台图标">
+  <defs>
+    <linearGradient id="g" x1="96" x2="416" y1="72" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#2563eb" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="118" fill="#f4f8ff"/>
+  <circle cx="256" cy="256" r="172" fill="url(#g)" filter="url(#s)"/>
+  <path fill="#ffffff" d="m256 112 37 87 94 8-71 62 21 92-81-48-81 48 21-92-71-62 94-8 37-87Z"/>
+  <path fill="#dff7ff" d="M146 382c58 35 162 35 220 0 11-7 24 7 15 17-53 61-197 61-250 0-9-10 4-24 15-17Z"/>
+</svg>

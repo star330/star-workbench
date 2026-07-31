@@ -1,0 +1,21 @@
+{
+  "name": "【星光不负赶路人】个人工作台",
+  "short_name": "星光工作台",
+  "description": "2027 广东国考行政执法卷与广东省考备考个人工作台",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f8ff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "lang": "zh-CN"
+}
