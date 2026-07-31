@@ -1,4 +1,4 @@
-const CACHE_NAME = "xingguang-workbench-cache-v7";
+const CACHE_NAME = "xingguang-workbench-cache-v9";
 const ASSETS = [
   "./",
   "./index.html",

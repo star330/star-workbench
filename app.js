@@ -21,6 +21,8 @@
     "practice": "越做越行",
     "practice-session": "本组训练",
     "essay": "申论点拨",
+    "essay-list": "题型列表",
+    "essay-detail": "题目解析",
     "mistakes": "错题复盘",
     "knowledge": "知识导入"
   };
@@ -29,6 +31,8 @@
   var radarChart = null;
   var deferredInstallPrompt = null;
   var currentView = "home";
+  var currentEssayType = null;
+  var currentEssayId = null;
 
   document.addEventListener("DOMContentLoaded", function () {
     bindNavigation();
@@ -125,6 +129,10 @@
     document.getElementById("backBtn").addEventListener("click", function () {
       if (currentView === "practice-session") {
         openView("practice");
+      } else if (currentView === "essay-detail") {
+        openView("essay-list");
+      } else if (currentView === "essay-list") {
+        openView("essay");
       } else {
         openView("home");
       }
@@ -183,6 +191,16 @@
       e.target.reset();
       saveState(); renderAll();
     });
+
+    var questionImageFile = document.getElementById("questionImageFile");
+    if (questionImageFile) {
+      questionImageFile.addEventListener("change", previewQuestionImage);
+    }
+
+    var recognizeQuestionBtn = document.getElementById("recognizeQuestionBtn");
+    if (recognizeQuestionBtn) {
+      recognizeQuestionBtn.addEventListener("click", recognizeQuestionImage);
+    }
 
     document.getElementById("questionForm").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -338,6 +356,164 @@
 
   function unique(arr) { return Array.from(new Set(arr.filter(Boolean))); }
 
+  function setOcrStatus(text) {
+    var el = document.getElementById("ocrStatus");
+    if (el) el.textContent = text;
+  }
+
+  function previewQuestionImage() {
+    var input = document.getElementById("questionImageFile");
+    var preview = document.getElementById("ocrPreview");
+    var file = input && input.files ? input.files[0] : null;
+    if (!file || !preview) return;
+    preview.src = URL.createObjectURL(file);
+    preview.style.display = "block";
+    setOcrStatus("图片已选择。点击“识别图片并填入题目”后，会自动提取题干和选项。");
+  }
+
+  async function recognizeQuestionImage() {
+    var input = document.getElementById("questionImageFile");
+    var file = input && input.files ? input.files[0] : null;
+    var btn = document.getElementById("recognizeQuestionBtn");
+    if (!file) {
+      setOcrStatus("请先拍照或选择一张题目图片。");
+      return;
+    }
+    if (!window.Tesseract) {
+      setOcrStatus("OCR识别库还没有加载成功。请确认网络正常后刷新页面，再重新识别。");
+      return;
+    }
+
+    var oldText = btn ? btn.textContent : "";
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "正在识别...";
+      }
+      setOcrStatus("正在识别图片文字，首次使用可能需要等待一会儿。");
+      var result = await window.Tesseract.recognize(file, "chi_sim+eng", {
+        logger: function (m) {
+          if (m && m.status === "recognizing text" && typeof m.progress === "number") {
+            setOcrStatus("正在识别文字：" + Math.round(m.progress * 100) + "%");
+          }
+        }
+      });
+      var text = result && result.data ? (result.data.text || "") : "";
+      var parsed = parseQuestionText(text);
+      applyParsedQuestionToForm(parsed, text);
+      setOcrStatus("识别完成。已自动填入题干、选项、板块和题型，请检查后再点击“加入题库”。");
+    } catch (err) {
+      setOcrStatus("识别失败。可能是图片不够清晰、网络加载识别模型失败，或题目排版太复杂。你可以重新拍一张更清晰的照片。\n错误信息：" + (err && err.message ? err.message : String(err)));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldText;
+      }
+    }
+  }
+
+  function parseQuestionText(rawText) {
+    var raw = String(rawText || "").replace(/\r/g, "\n");
+    var normalized = raw
+      .replace(/[ \t]+/g, " ")
+      .replace(/([ABCD])\s*[\.．、:：\)]/g, "\n$1.")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    var optionRegex = /(?:^|\n)\s*([ABCD])\s*[\.．、:：\)]?\s*([\s\S]*?)(?=\n\s*[ABCD]\s*[\.．、:：\)]|\n\s*(?:答案|正确答案|解析)[:：]?|$)/g;
+    var options = {};
+    var firstOptionIndex = -1;
+    var match;
+    while ((match = optionRegex.exec(normalized)) !== null) {
+      if (firstOptionIndex === -1) firstOptionIndex = match.index;
+      options[match[1]] = cleanOptionText(match[2]);
+    }
+
+    var stem = firstOptionIndex > -1 ? normalized.slice(0, firstOptionIndex).trim() : normalized;
+    stem = stem.replace(/^\s*\d+[\.．、]?\s*/, "").trim();
+
+    var answerMatch = normalized.match(/(?:答案|正确答案)\s*[:：]?\s*([ABCD])/i);
+    var meta = inferQuestionMeta(stem + "\n" + Object.values(options).join("\n"));
+    return {
+      stem: stem,
+      options: {
+        A: options.A || "",
+        B: options.B || "",
+        C: options.C || "",
+        D: options.D || ""
+      },
+      answer: answerMatch ? answerMatch[1].toUpperCase() : "A",
+      section: meta.section,
+      type: meta.type,
+      fastTip: meta.fastTip
+    };
+  }
+
+  function cleanOptionText(text) {
+    return String(text || "")
+      .replace(/\n+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/(?:答案|正确答案|解析)[:：]?[\s\S]*$/g, "")
+      .trim();
+  }
+
+  function inferQuestionMeta(text) {
+    var t = String(text || "");
+    if (/增长率|增长量|基期|现期|比重|百分点|同比|环比|资料|表格|图表|平均数|倍数/.test(t)) {
+      return { section: "资料", type: /比重/.test(t) ? "比重计算" : (/增长率/.test(t) ? "增长率计算" : "综合分析"), fastTip: "先看单位和时间，再定位数据，优先用估算和选项差距排除。" };
+    }
+    if (/工程|行程|速度|路程|利润|折扣|排列|组合|概率|几何|面积|体积|最值|容斥|浓度|年龄|日期|数列/.test(t)) {
+      return { section: "数量", type: /概率|排列|组合/.test(t) ? "排列组合/概率问题" : (/工程/.test(t) ? "工程问题" : "数量关系"), fastTip: "先判断题型模型，能代入选项就优先代入，避免硬算。" };
+    }
+    if (/图形|左边|右边|折叠|展开|立体|规律|黑白块|元素|对称|旋转|平移/.test(t)) {
+      return { section: "判断", type: "图形推理", fastTip: "先看数量、位置、样式、属性，再看特殊规律。" };
+    }
+    if (/定义|属于|不属于|符合|不符合/.test(t)) {
+      return { section: "判断", type: "定义判断", fastTip: "圈主体、客体、条件、结果，逐项比对定义要件。" };
+    }
+    if (/加强|削弱|支持|质疑|前提|假设|结论|论据|推出|必然|可能/.test(t)) {
+      return { section: "判断", type: /加强|支持/.test(t) ? "加强削弱" : "逻辑判断", fastTip: "先找论点和论据，再判断选项是搭桥、补前提还是拆关系。" };
+    }
+    if (/依次填入|填入画横线|横线处|空缺处|词语|成语|最恰当/.test(t)) {
+      return { section: "言语", type: "逻辑填空", fastTip: "先圈关联词和提示信息，再看感情色彩、语义轻重和搭配对象。" };
+    }
+    if (/意在说明|主旨|概括|标题|这段文字|接下来最可能|语句排序|填入文中/.test(t)) {
+      return { section: "言语", type: /排序/.test(t) ? "语句排序" : "片段阅读-主旨概括", fastTip: "先找主题词和转折、结论句，警惕无中生有和过度推断。" };
+    }
+    if (/习近平|二十大|中国式现代化|新发展理念|依法治国|高质量发展|马克思|共同富裕|基层治理/.test(t)) {
+      return { section: "政治理论", type: "新思想/政治理论", fastTip: "优先匹配政策原文表述，注意主体、目标和路径是否一致。" };
+    }
+    if (/行政处罚|行政许可|行政复议|民法|刑法|宪法|法律|科技|地理|历史|经济/.test(t)) {
+      return { section: "常识", type: /行政/.test(t) ? "行政执法常识" : "常识判断", fastTip: "先判断知识领域，再排除明显违反基本法律或常识的选项。" };
+    }
+    return { section: "言语", type: "待确认题型", fastTip: "识别后请先核对题干和选项，再根据题目特征微调题型。" };
+  }
+
+  function applyParsedQuestionToForm(parsed, rawText) {
+    var form = document.getElementById("questionForm");
+    if (!form) return;
+    setSelectValue(form.elements.section, parsed.section);
+    form.elements.type.value = parsed.type || "";
+    form.elements.source.value = form.elements.source.value || "拍照识别导入";
+    form.elements.stem.value = parsed.stem || String(rawText || "").trim();
+    form.elements.a.value = parsed.options.A || "";
+    form.elements.b.value = parsed.options.B || "";
+    form.elements.c.value = parsed.options.C || "";
+    form.elements.d.value = parsed.options.D || "";
+    setSelectValue(form.elements.answer, parsed.answer || "A");
+    form.elements.fastTip.value = parsed.fastTip || "";
+    if (!form.elements.explain.value) {
+      form.elements.explain.value = "图片识别导入题目，建议补充完整解析。";
+    }
+    updateTypeFilter();
+  }
+
+  function setSelectValue(select, value) {
+    if (!select) return;
+    var exists = Array.from(select.options).some(function (opt) { return opt.value === value; });
+    if (exists) select.value = value;
+  }
+
   function readFileAsText(file) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
@@ -398,7 +574,7 @@
     renderHotspots();
     renderTaxonomy();
     renderQuestionBank();
-    renderEssays();
+    renderEssayTypeNav();
     renderMistakes();
     renderKnowledge();
     renderTips();
@@ -465,23 +641,99 @@
     bindDeleteButtons();
   }
 
-  function renderEssays() {
-    var box = document.getElementById("essayList");
-    box.innerHTML = state.essays.map(function (item) {
-      return '<article class="content-card essay-card">' +
-        '<header><div><h3>' + escapeHtml(item.type) + ' \u00b7 ' + escapeHtml(item.source || "") + '</h3></div>' +
-        '<button class="danger-btn" data-delete="essays" data-id="' + item.id + '" type="button">删除</button></header>' +
-        '<div class="essay-prompt-box"><span class="essay-label">题干要求</span><p>' + escapeHtml(item.prompt || "") + '</p></div>' +
-        (item.material ? '<div class="essay-material-box"><span class="essay-label">原文材料</span><div class="essay-material-text">' + escapeHtml(item.material) + '</div></div>' : '') +
-        '<div class="essay-answer-flow">' +
-        '<div class="essay-step"><span class="essay-step-num">1</span><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "") + '</p></div>' +
-        '<div class="essay-step"><span class="essay-step-num">2</span><strong>关键句</strong><p>' + escapeHtml(item.sentence || "") + '</p></div>' +
-        '<div class="essay-step"><span class="essay-step-num">3</span><strong>关键词</strong><p>' + escapeHtml(item.keyword || "") + '</p></div>' +
-        '<div class="essay-step"><span class="essay-step-num">4</span><strong>入选原因</strong><p>' + escapeHtml(item.reason || "") + '</p></div>' +
+  function renderEssayTypeNav() {
+    var types = ["归纳概括", "提出对策", "综合分析", "贯彻执行", "文章写作"];
+    var box = document.getElementById("essayTypeNav");
+    box.innerHTML = types.map(function (t) {
+      var count = state.essays.filter(function (item) { return item.type === t; }).length;
+      var typeLabels = {
+        "归纳概括": "从材料中提炼要点，保留原词",
+        "提出对策": "问题反推对策，四维补足",
+        "综合分析": "拆解关键词，回扣材料",
+        "贯彻执行": "格式服从题干，结构清晰",
+        "文章写作": "立意来自材料，论证三支撑"
+      };
+      var colors = {
+        "归纳概括": "#2563eb",
+        "提出对策": "#38bdf8",
+        "综合分析": "#6366f1",
+        "贯彻执行": "#f59e0b",
+        "文章写作": "#10b981"
+      };
+      return '<article class="content-card essay-type-card" data-essay-type="' + escapeHtml(t) + '">' +
+        '<div class="essay-type-header" style="border-left-color:' + (colors[t] || '#2563eb') + '">' +
+        '<h3>' + escapeHtml(t) + '</h3>' +
+        '<span class="essay-count">' + count + ' 题</span>' +
         '</div>' +
-        '<div class="essay-answer-box"><span class="essay-label essay-label-answer">规范答案</span><p>' + escapeHtml(item.answer || "") + '</p></div>' +
+        '<p class="essay-type-desc">' + escapeHtml(typeLabels[t] || "") + '</p>' +
+        '<div class="essay-type-arrow">查看题目 &rsaquo;</div>' +
         '</article>';
     }).join("");
+    document.querySelectorAll('.essay-type-card').forEach(function (card) {
+      card.addEventListener('click', function () {
+        openEssayList(card.dataset.essayType);
+      });
+    });
+  }
+
+  function openEssayList(type) {
+    currentEssayType = type;
+    document.getElementById("essayListTitle").textContent = type + " \u00b7 题目列表";
+    renderEssayList();
+    openView("essay-list");
+  }
+
+  function renderEssayList() {
+    var box = document.getElementById("essayListBox");
+    var items = state.essays.filter(function (item) { return item.type === currentEssayType; });
+    if (items.length === 0) {
+      box.innerHTML = '<p class="empty-tip">该题型暂无题目，点击下方\u201c手动新增申论解析\u201d添加。</p>';
+      return;
+    }
+    box.innerHTML = items.map(function (item) {
+      var preview = (item.prompt || "").slice(0, 60) + ((item.prompt || "").length > 60 ? "..." : "");
+      return '<article class="content-card essay-list-item" data-essay-id="' + item.id + '">' +
+        '<div class="essay-list-header">' +
+        '<h3>' + escapeHtml(item.source || "未标注题源") + '</h3>' +
+        '<span class="essay-list-preview">' + escapeHtml(preview) + '</span>' +
+        '</div>' +
+        '<div class="essay-list-arrow">查看解析 &rsaquo;</div>' +
+        '</article>';
+    }).join("");
+    document.querySelectorAll('.essay-list-item').forEach(function (card) {
+      card.addEventListener('click', function () {
+        openEssayDetail(card.dataset.essayId);
+      });
+    });
+  }
+
+  function openEssayDetail(id) {
+    currentEssayId = id;
+    renderEssayDetail();
+    openView("essay-detail");
+  }
+
+  function renderEssayDetail() {
+    var item = state.essays.find(function (e) { return e.id === currentEssayId; });
+    var box = document.getElementById("essayDetailBox");
+    if (!item) {
+      box.innerHTML = '<p class="empty-tip">题目不存在或已被删除。</p>';
+      return;
+    }
+    document.getElementById("essayDetailTitle").textContent = item.type + " \u00b7 题目解析";
+    box.innerHTML = '<article class="content-card essay-detail-card">' +
+      '<header><div><h3>' + escapeHtml(item.source || "") + '</h3></div>' +
+      '<button class="danger-btn" data-delete="essays" data-id="' + item.id + '" type="button">删除</button></header>' +
+      '<div class="essay-prompt-box"><span class="essay-label">题干要求</span><p>' + escapeHtml(item.prompt || "") + '</p></div>' +
+      (item.material ? '<div class="essay-material-box"><span class="essay-label">原文材料</span><div class="essay-material-text">' + escapeHtml(item.material) + '</div></div>' : '') +
+      '<div class="essay-answer-flow">' +
+      '<div class="essay-step"><span class="essay-step-num">1</span><div><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "") + '</p></div></div>' +
+      '<div class="essay-step"><span class="essay-step-num">2</span><div><strong>关键句</strong><p>' + escapeHtml(item.sentence || "") + '</p></div></div>' +
+      '<div class="essay-step"><span class="essay-step-num">3</span><div><strong>关键词</strong><p>' + escapeHtml(item.keyword || "") + '</p></div></div>' +
+      '<div class="essay-step"><span class="essay-step-num">4</span><div><strong>入选原因</strong><p>' + escapeHtml(item.reason || "") + '</p></div></div>' +
+      '</div>' +
+      '<div class="essay-answer-box"><span class="essay-label essay-label-answer">规范答案</span><p>' + escapeHtml(item.answer || "") + '</p></div>' +
+      '</article>';
     bindDeleteButtons();
   }
 

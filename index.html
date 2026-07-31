@@ -129,6 +129,16 @@
         <details class="form-collapse">
           <summary>手动新增题目</summary>
           <form id="questionForm" class="form-card">
+            <div class="photo-import-card">
+              <h4>拍照/图片识别导入</h4>
+              <p>拍下或上传题目图片后，系统会尽量识别题干、A-D 选项，并自动判断板块和题型。识别后你可以再手动微调。</p>
+              <div class="photo-import-actions">
+                <input id="questionImageFile" type="file" accept="image/*" capture="environment" />
+                <button id="recognizeQuestionBtn" class="secondary-btn" type="button">识别图片并填入题目</button>
+              </div>
+              <p id="ocrStatus" class="ocr-status">提示：拍照时尽量让题目正对镜头、文字清晰、不要遮住选项。</p>
+              <img id="ocrPreview" class="ocr-preview" alt="题目图片预览" />
+            </div>
             <div class="form-grid">
               <label>板块<select name="section" id="questionSection"></select></label>
               <label>题型<input name="type" required placeholder="例如：图形推理 / 资料分析-增长率" /></label>
@@ -184,7 +194,7 @@
           </div>
           <p class="flow-note">每道题完整呈现：原文材料 + 题干要求 → 材料定位 → 关键句 → 关键词 → 入选原因 → 规范答案</p>
         </div>
-        <div id="essayList" class="card-list"></div>
+        <div id="essayTypeNav" class="card-list"></div>
         <details class="form-collapse">
           <summary>手动新增申论解析</summary>
           <form id="essayForm" class="form-card">
@@ -202,6 +212,24 @@
             <button class="primary-btn" type="submit">加入申论库</button>
           </form>
         </details>
+      </section>
+
+      <!-- ===== 申论题型列表 ===== -->
+      <section id="view-essay-list" class="view">
+        <div class="section-head">
+          <p class="eyebrow">申论题型</p>
+          <h2 id="essayListTitle">题型列表</h2>
+        </div>
+        <div id="essayListBox" class="card-list"></div>
+      </section>
+
+      <!-- ===== 申论题目详情 ===== -->
+      <section id="view-essay-detail" class="view">
+        <div class="section-head">
+          <p class="eyebrow">题目解析</p>
+          <h2 id="essayDetailTitle">材料定位 · 规范作答</h2>
+        </div>
+        <div id="essayDetailBox"></div>
       </section>
 
       <!-- ===== 错题复盘 ===== -->
@@ -257,6 +285,7 @@
 
   <script src="./_shared/js/echarts.min.js"></script>
   <script src="./_shared/js/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="question-bank-1.js"></script>
   <script src="question-bank-2.js"></script>
   <script src="question-bank-3.js"></script>
