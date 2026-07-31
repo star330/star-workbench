@@ -1,15 +1,25 @@
 (function () {
-  var STORE_KEY = "xingguang-workbench-v1";
+  var STORE_KEY = "xingguang-workbench-v2";
+  var QB_VERSION = "2026-07-31-v1"; /* 题库版本号，变更时自动刷新题库 */
   var today = new Date().toISOString().slice(0, 10);
 
   var sections = ["常识", "言语", "数量", "判断", "资料", "政治理论"];
   var taxonomy = {
-    "常识": ["法律常识", "行政执法常识", "科技人文", "经济管理", "广东省情"],
-    "言语": ["逻辑填空", "片段阅读", "语句排序", "语句衔接", "中心理解"],
-    "数量": ["工程问题", "行程问题", "利润问题", "排列组合", "几何问题"],
-    "判断": ["图形推理", "定义判断", "类比推理", "加强削弱", "逻辑推理一拖五"],
-    "资料": ["增长率", "增长量", "比重", "平均数", "倍数", "综合分析"],
-    "政治理论": ["二十大精神", "新思想", "依法治国", "基层治理", "高质量发展"]
+    "常识": ["法律常识", "行政执法常识", "科技人文", "经济管理", "广东省情", "政治常识", "地理国情"],
+    "言语": ["逻辑填空-递进", "逻辑填空-转折", "逻辑填空-并列", "逻辑填空-因果", "逻辑填空-解释", "逻辑填空-虚词辨析", "片段阅读-主旨概括", "片段阅读-意图判断", "片段阅读-细节理解", "片段阅读-标题填入", "语句排序", "语句衔接"],
+    "数量": ["工程问题", "行程问题", "利润问题", "排列组合", "概率问题", "几何问题", "最值问题", "容斥问题", "浓度问题", "日期年龄问题", "数列问题", "鸡兔同笼/植树问题", "统筹推断", "抽屉原理"],
+    "判断": ["图形推理", "定义判断", "类比推理", "加强削弱", "逻辑判断", "翻译推理", "真假推理", "分析推理", "逻辑推理一拖五"],
+    "资料": ["增长率计算", "增长率比较", "增长量计算", "增长量比较", "基期量计算", "现期量计算", "比重计算", "比重变化判断", "平均数计算", "倍数计算", "综合分析", "综合分析判断", "速算技巧应用"],
+    "政治理论": ["二十大精神", "新思想", "中特思想", "马克思主义理论", "马政经", "依法治国", "基层治理", "高质量发展"]
+  };
+
+  var viewTitles = {
+    "home": "【星光不负赶路人】",
+    "daily": "时政精析",
+    "practice": "越做越行",
+    "essay": "申论点拨",
+    "mistakes": "错题复盘",
+    "knowledge": "知识导入"
   };
 
   var state = loadState();
@@ -17,7 +27,7 @@
   var deferredInstallPrompt = null;
 
   document.addEventListener("DOMContentLoaded", function () {
-    bindTabs();
+    bindNavigation();
     bindForms();
     bindPwa();
     fillSelects();
@@ -26,10 +36,12 @@
     registerServiceWorker();
   });
 
+  /* ===== 数据存取 ===== */
   function defaultState() {
     return {
       lastHotspotDate: "",
       hotspots: [],
+      qbVersion: QB_VERSION,
       questions: seedQuestions(),
       essays: seedEssays(),
       mistakes: [],
@@ -50,8 +62,20 @@
       var raw = localStorage.getItem(STORE_KEY);
       if (!raw) return defaultState();
       var parsed = JSON.parse(raw);
-      return Object.assign(defaultState(), parsed);
-    } catch (error) {
+      var def = defaultState();
+      /* 题库版本变更时，自动刷新题库但保留用户练习数据和错题 */
+      var needRefresh = parsed.qbVersion !== QB_VERSION;
+      return {
+        lastHotspotDate: parsed.lastHotspotDate || "",
+        hotspots: parsed.hotspots || [],
+        qbVersion: QB_VERSION,
+        questions: needRefresh ? def.questions : ((parsed.questions && parsed.questions.length > 0) ? parsed.questions : def.questions),
+        essays: (parsed.essays && parsed.essays.length > 0) ? parsed.essays : def.essays,
+        mistakes: parsed.mistakes || [],
+        knowledge: (parsed.knowledge && parsed.knowledge.length > 0) ? parsed.knowledge : def.knowledge,
+        mastery: Object.assign(def.mastery, parsed.mastery || {})
+      };
+    } catch (e) {
       return defaultState();
     }
   }
@@ -66,37 +90,43 @@
 
   function escapeHtml(text) {
     return String(text || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   }
 
-  function bindTabs() {
-    document.querySelectorAll(".tab-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        openTab(btn.dataset.tab);
+  /* ===== 视图导航 ===== */
+  function bindNavigation() {
+    document.querySelectorAll(".nav-card").forEach(function (card) {
+      card.addEventListener("click", function () {
+        openView(card.dataset.nav);
       });
     });
 
-    document.querySelectorAll("[data-tab-target]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        openTab(btn.dataset.tabTarget);
-      });
+    document.getElementById("backBtn").addEventListener("click", function () {
+      openView("home");
     });
   }
 
-  function openTab(tabId) {
-    document.querySelectorAll(".tab-btn").forEach(function (btn) {
-      btn.classList.toggle("active", btn.dataset.tab === tabId);
+  function openView(viewId) {
+    document.querySelectorAll(".view").forEach(function (v) {
+      v.classList.toggle("active", v.id === "view-" + viewId);
     });
-    document.querySelectorAll(".tab-panel").forEach(function (panel) {
-      panel.classList.toggle("active", panel.id === tabId);
-    });
-    if (tabId === "dashboard") setTimeout(renderRadar, 80);
+
+    var title = viewTitles[viewId] || viewTitles["home"];
+    document.getElementById("pageTitle").textContent = title;
+
+    var backBtn = document.getElementById("backBtn");
+    if (viewId === "home") {
+      backBtn.classList.add("hidden");
+    } else {
+      backBtn.classList.remove("hidden");
+    }
+
+    window.scrollTo(0, 0);
+    if (viewId === "home") setTimeout(renderRadar, 60);
   }
 
+  /* ===== 表单绑定 ===== */
   function bindForms() {
     document.getElementById("generateDailyBtn").addEventListener("click", function () {
       state.hotspots = seedHotspots(today).concat(state.hotspots.filter(function (item) {
@@ -108,7 +138,7 @@
     });
 
     document.getElementById("resetDemoBtn").addEventListener("click", function () {
-      if (confirm("确认恢复示例数据？这会覆盖当前本地保存的内容。")) {
+      if (confirm("确认恢复初始数据？这会覆盖当前本地保存的内容。")) {
         state = defaultState();
         ensureDailyHotspots(true);
         saveState();
@@ -116,90 +146,61 @@
       }
     });
 
-    document.getElementById("hotspotForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      var data = formData(event.target);
+    document.getElementById("hotspotForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var d = formData(e.target);
       state.hotspots.unshift({
-        id: uid("hot"),
-        date: today,
-        auto: false,
-        title: data.title,
-        source: data.source,
-        stem: data.stem,
-        logic: data.logic,
-        vocab: splitTags(data.vocab),
-        analysis: data.analysis,
-        quote: data.quote,
-        countermeasure: data.countermeasure
+        id: uid("hot"), date: today, auto: false,
+        title: d.title, source: d.source, stem: d.stem, logic: d.logic,
+        vocab: splitTags(d.vocab), analysis: d.analysis, quote: d.quote, countermeasure: d.countermeasure
       });
-      event.target.reset();
-      saveState();
-      renderAll();
+      e.target.reset();
+      saveState(); renderAll();
     });
 
-    document.getElementById("questionForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      var data = formData(event.target);
+    document.getElementById("questionForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var d = formData(e.target);
       state.questions.unshift({
-        id: uid("q"),
-        section: data.section,
-        type: data.type,
-        source: data.source,
-        stem: data.stem,
-        options: { A: data.a, B: data.b, C: data.c, D: data.d },
-        answer: data.answer,
-        fastTip: data.fastTip,
-        explain: data.explain
+        id: uid("q"), section: d.section, type: d.type, source: d.source,
+        stem: d.stem, options: { A: d.a, B: d.b, C: d.c, D: d.d },
+        answer: d.answer, fastTip: d.fastTip, explain: d.explain
       });
-      event.target.reset();
-      fillSelects();
-      saveState();
-      renderAll();
+      e.target.reset(); fillSelects(); saveState(); renderAll();
     });
 
-    document.getElementById("essayForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      var data = formData(event.target);
-      state.essays.unshift(Object.assign({ id: uid("essay") }, data));
-      event.target.reset();
-      saveState();
-      renderAll();
+    document.getElementById("essayForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var d = formData(e.target);
+      state.essays.unshift(Object.assign({ id: uid("essay") }, d));
+      e.target.reset(); saveState(); renderAll();
     });
 
-    document.getElementById("mistakeForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      var data = formData(event.target);
-      state.mistakes.unshift(Object.assign({ id: uid("mistake"), date: today, auto: false }, data));
-      event.target.reset();
-      saveState();
-      renderAll();
+    document.getElementById("mistakeForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var d = formData(e.target);
+      state.mistakes.unshift(Object.assign({ id: uid("mistake"), date: today, auto: false }, d));
+      e.target.reset(); saveState(); renderAll();
     });
 
-    document.getElementById("knowledgeForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      var form = event.target;
-      var data = formData(form);
+    document.getElementById("knowledgeForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var d = formData(form);
       var file = document.getElementById("knowledgeFile").files[0];
 
       function addKnowledge(fileText) {
         state.knowledge.unshift({
-          id: uid("know"),
-          date: today,
-          title: data.title,
-          section: data.section,
+          id: uid("know"), date: today, title: d.title, section: d.section,
           fileName: file ? file.name : "",
-          summary: [data.summary, fileText].filter(Boolean).join("\n\n")
+          summary: [d.summary, fileText].filter(Boolean).join("\n\n")
         });
-        form.reset();
-        saveState();
-        renderAll();
+        form.reset(); saveState(); renderAll();
       }
 
       if (file) {
         var reader = new FileReader();
-        reader.onload = function () {
-          addKnowledge(String(reader.result || "").slice(0, 12000));
-        };
+        reader.onload = function () { addKnowledge(String(reader.result || "").slice(0, 12000)); };
         reader.readAsText(file, "utf-8");
       } else {
         addKnowledge("");
@@ -210,10 +211,11 @@
     document.getElementById("practiceSectionFilter").addEventListener("change", updateTypeFilter);
   }
 
+  /* ===== PWA ===== */
   function bindPwa() {
-    window.addEventListener("beforeinstallprompt", function (event) {
-      event.preventDefault();
-      deferredInstallPrompt = event;
+    window.addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
       document.getElementById("installBtn").classList.remove("hidden");
     });
 
@@ -233,6 +235,7 @@
     }
   }
 
+  /* ===== 选择器填充 ===== */
   function fillSelects() {
     fillSectionSelect("questionSection");
     fillSectionSelect("mistakeSection");
@@ -242,52 +245,44 @@
   }
 
   function fillSectionSelect(id, allLabel) {
-    var select = document.getElementById(id);
-    if (!select) return;
-    select.innerHTML = "";
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = "";
     if (allLabel) {
       var all = document.createElement("option");
-      all.value = "";
-      all.textContent = allLabel;
-      select.appendChild(all);
+      all.value = ""; all.textContent = allLabel;
+      sel.appendChild(all);
     }
-    sections.forEach(function (section) {
-      var option = document.createElement("option");
-      option.value = section;
-      option.textContent = section;
-      select.appendChild(option);
+    sections.forEach(function (s) {
+      var opt = document.createElement("option");
+      opt.value = s; opt.textContent = s;
+      sel.appendChild(opt);
     });
   }
 
   function updateTypeFilter() {
     var section = document.getElementById("practiceSectionFilter").value;
-    var select = document.getElementById("practiceTypeFilter");
+    var sel = document.getElementById("practiceTypeFilter");
     var types = unique(state.questions
       .filter(function (q) { return !section || q.section === section; })
       .map(function (q) { return q.type; }));
-
-    select.innerHTML = '<option value="">全部题型</option>' + types.map(function (type) {
-      return '<option value="' + escapeHtml(type) + '">' + escapeHtml(type) + '</option>';
+    sel.innerHTML = '<option value="">全部题型</option>' + types.map(function (t) {
+      return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
     }).join("");
   }
 
+  /* ===== 工具函数 ===== */
   function formData(form) {
-    var data = {};
-    new FormData(form).forEach(function (value, key) {
-      data[key] = String(value).trim();
-    });
-    return data;
+    var d = {};
+    new FormData(form).forEach(function (v, k) { d[k] = String(v).trim(); });
+    return d;
   }
 
-  function splitTags(value) {
-    return String(value || "").split(/[，,、\s]+/).map(function (item) {
-      return item.trim();
-    }).filter(Boolean);
+  function splitTags(v) {
+    return String(v || "").split(/[，,、\s]+/).map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
-  function unique(arr) {
-    return Array.from(new Set(arr.filter(Boolean)));
-  }
+  function unique(arr) { return Array.from(new Set(arr.filter(Boolean))); }
 
   function ensureDailyHotspots(force) {
     if (force || state.lastHotspotDate !== today || state.hotspots.length === 0) {
@@ -299,8 +294,9 @@
     }
   }
 
+  /* ===== 渲染 ===== */
   function renderAll() {
-    renderMetrics();
+    renderBadges();
     renderHotspots();
     renderTaxonomy();
     renderQuestionBank();
@@ -312,57 +308,58 @@
     updateTypeFilter();
   }
 
-  function renderMetrics() {
-    document.getElementById("metricHotspots").textContent = state.hotspots.length;
-    document.getElementById("metricQuestions").textContent = state.questions.length;
-    document.getElementById("metricMistakes").textContent = state.mistakes.length;
-    document.getElementById("metricKnowledge").textContent = state.knowledge.length;
+  function renderBadges() {
+    document.getElementById("badgeHotspots").textContent = state.hotspots.length;
+    document.getElementById("badgeQuestions").textContent = state.questions.length;
+    document.getElementById("badgeEssays").textContent = state.essays.length;
+    document.getElementById("badgeMistakes").textContent = state.mistakes.length;
+    document.getElementById("badgeKnowledge").textContent = state.knowledge.length;
+    var qc = document.getElementById("questionCount");
+    if (qc) qc.textContent = state.questions.length;
   }
 
   function renderHotspots() {
     var box = document.getElementById("hotspotList");
     box.innerHTML = state.hotspots.map(function (item) {
       return '<article class="content-card">' +
-        '<header><div><h3>' + escapeHtml(item.title) + '</h3><span class="meta">' + escapeHtml(item.date) + ' · ' + escapeHtml(item.source || "待补充原文出处") + '</span></div>' +
+        '<header><div><h3>' + escapeHtml(item.title) + '</h3><span class="meta">' + escapeHtml(item.date) + ' · ' + escapeHtml(item.source || "") + '</span></div>' +
         '<button class="danger-btn" data-delete="hotspots" data-id="' + item.id + '" type="button">删除</button></header>' +
-        '<div class="tag-row"><span class="tag">逻辑关系：' + escapeHtml(item.logic || "待判断") + '</span>' + (item.auto ? '<span class="tag">今日自动示例</span>' : '') + renderTags(item.vocab) + '</div>' +
+        '<div class="tag-row"><span class="tag">' + escapeHtml(item.logic || "") + '</span>' + (item.auto ? '<span class="tag">今日推送</span>' : '') + renderTags(item.vocab) + '</div>' +
         '<div class="analysis-grid">' +
-        '<div class="analysis-box"><strong>逻辑填空题干出处</strong><p>' + escapeHtml(item.stem || "请补充原文或题干。") + '</p></div>' +
-        '<div class="analysis-box"><strong>逻辑考点分析</strong><p>' + escapeHtml(item.analysis || "建议标注提示词、关联词、语义轻重、感情色彩和搭配对象。") + '</p></div>' +
-        '<div class="analysis-box"><strong>申论金句</strong><p>' + escapeHtml(item.quote || "请从热点中提炼一句可迁移表达。") + '</p></div>' +
-        '<div class="analysis-box"><strong>对策建议</strong><p>' + escapeHtml(item.countermeasure || "请从主体、制度、技术、监督、服务等角度提炼。") + '</p></div>' +
+        '<div class="analysis-box"><strong>逻辑填空题干出处</strong><p>' + escapeHtml(item.stem || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>逻辑考点分析</strong><p>' + escapeHtml(item.analysis || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>申论金句</strong><p>' + escapeHtml(item.quote || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>对策建议</strong><p>' + escapeHtml(item.countermeasure || "") + '</p></div>' +
         '</div></article>';
     }).join("");
     bindDeleteButtons();
   }
 
   function renderTags(tags) {
-    return (tags || []).map(function (tag) {
-      return '<span class="tag">' + escapeHtml(tag) + '</span>';
-    }).join("");
+    return (tags || []).map(function (t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join("");
   }
 
   function renderTaxonomy() {
     var box = document.getElementById("taxonomyGrid");
-    box.innerHTML = sections.map(function (section) {
-      var mastery = getMastery(section);
-      return '<article class="taxonomy-item"><h4>' + section + '</h4>' +
-        '<p class="meta">掌握度：' + mastery.percent + '% <span class="stars">' + mastery.stars + '</span></p>' +
-        '<div class="tag-row">' + taxonomy[section].map(function (type) {
-          return '<span class="tag">' + type + '</span>';
-        }).join("") + '</div></article>';
+    box.innerHTML = sections.map(function (s) {
+      var m = getMastery(s);
+      return '<article class="taxonomy-item"><h4>' + s + '</h4>' +
+        '<p class="meta">掌握度：' + m.percent + '% <span class="stars">' + m.stars + '</span>（' + m.correct + '/' + m.total + '）</p>' +
+        '<div class="tag-row">' + taxonomy[s].map(function (t) { return '<span class="tag">' + t + '</span>'; }).join("") + '</div></article>';
     }).join("");
   }
 
   function renderQuestionBank() {
     var box = document.getElementById("questionBank");
+    if (!box) return;
     box.innerHTML = state.questions.map(function (q) {
       return '<article class="content-card">' +
-        '<header><div><h3>' + escapeHtml(q.section) + ' · ' + escapeHtml(q.type) + '</h3><span class="meta">' + escapeHtml(q.source || "题源待补充") + '</span></div>' +
+        '<header><div><h3>' + escapeHtml(q.section) + ' · ' + escapeHtml(q.type) + '</h3><span class="meta">' + escapeHtml(q.source || "") + '</span></div>' +
         '<button class="danger-btn" data-delete="questions" data-id="' + q.id + '" type="button">删除</button></header>' +
         '<p>' + escapeHtml(q.stem) + '</p>' +
-        '<div class="tag-row"><span class="tag">答案：' + escapeHtml(q.answer) + '</span><span class="tag">考场提示：' + escapeHtml(q.fastTip || "先抓题干限定，再排除干扰") + '</span></div>' +
-        '<div class="analysis-box"><strong>解析</strong><p>' + escapeHtml(q.explain || "请补充考场视角解析和完整推导。") + '</p></div>' +
+        '<div class="tag-row"><span class="tag">答案：' + escapeHtml(q.answer) + '</span></div>' +
+        '<div class="analysis-box"><strong>考场提示</strong><p>' + escapeHtml(q.fastTip || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>解析</strong><p>' + escapeHtml(q.explain || "") + '</p></div>' +
         '</article>';
     }).join("");
     bindDeleteButtons();
@@ -372,13 +369,14 @@
     var box = document.getElementById("essayList");
     box.innerHTML = state.essays.map(function (item) {
       return '<article class="content-card">' +
-        '<header><div><h3>' + escapeHtml(item.type) + ' · ' + escapeHtml(item.source || "题源待补充") + '</h3><span class="meta">' + escapeHtml(item.prompt || "题干待补充") + '</span></div>' +
+        '<header><div><h3>' + escapeHtml(item.type) + ' · ' + escapeHtml(item.source || "") + '</h3><span class="meta">' + escapeHtml(item.prompt || "") + '</span></div>' +
         '<button class="danger-btn" data-delete="essays" data-id="' + item.id + '" type="button">删除</button></header>' +
         '<div class="analysis-grid">' +
-        '<div class="analysis-box"><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "段落待标注") + '；' + escapeHtml(item.sentence || "句子待标注") + '</p></div>' +
-        '<div class="analysis-box"><strong>关键词</strong><p>' + escapeHtml(item.keyword || "关键词待标注") + '</p></div>' +
-        '<div class="analysis-box"><strong>入选原因</strong><p>' + escapeHtml(item.reason || "说明它为什么对应题干。") + '</p></div>' +
-        '<div class="analysis-box"><strong>规范答案点</strong><p>' + escapeHtml(item.answer || "答案点待完善") + '</p></div>' +
+        '<div class="analysis-box"><strong>材料定位</strong><p>' + escapeHtml(item.paragraph || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>关键句</strong><p>' + escapeHtml(item.sentence || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>关键词</strong><p>' + escapeHtml(item.keyword || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>入选原因</strong><p>' + escapeHtml(item.reason || "") + '</p></div>' +
+        '<div class="analysis-box" style="grid-column:1/-1"><strong>规范答案点</strong><p>' + escapeHtml(item.answer || "") + '</p></div>' +
         '</div></article>';
     }).join("");
     bindDeleteButtons();
@@ -388,12 +386,12 @@
     var box = document.getElementById("mistakeList");
     box.innerHTML = state.mistakes.map(function (item) {
       return '<article class="content-card">' +
-        '<header><div><h3>' + escapeHtml(item.section) + ' · ' + escapeHtml(item.type || "未分类") + '</h3><span class="meta">' + escapeHtml(item.date || today) + ' · 错因：' + escapeHtml(item.reason || "待归因") + '</span></div>' +
+        '<header><div><h3>' + escapeHtml(item.section) + ' · ' + escapeHtml(item.type || "未分类") + '</h3><span class="meta">' + escapeHtml(item.date || today) + ' · 错因：' + escapeHtml(item.reason || "") + '</span></div>' +
         '<button class="danger-btn" data-delete="mistakes" data-id="' + item.id + '" type="button">删除</button></header>' +
-        '<p>' + escapeHtml(item.stem || "错题简述待补充") + '</p>' +
+        '<p>' + escapeHtml(item.stem || "") + '</p>' +
         '<div class="analysis-grid">' +
-        '<div class="analysis-box"><strong>下次避坑点</strong><p>' + escapeHtml(item.pitfall || "请写清楚下次遇到同类题必须先检查什么。") + '</p></div>' +
-        '<div class="analysis-box"><strong>正确解题路径</strong><p>' + escapeHtml(item.correctPath || "请写出纠正后的审题、定位、计算或推理流程。") + '</p></div>' +
+        '<div class="analysis-box"><strong>下次避坑点</strong><p>' + escapeHtml(item.pitfall || "") + '</p></div>' +
+        '<div class="analysis-box"><strong>正确解题路径</strong><p>' + escapeHtml(item.correctPath || "") + '</p></div>' +
         '</div></article>';
     }).join("");
     bindDeleteButtons();
@@ -405,26 +403,27 @@
       return '<article class="content-card">' +
         '<header><div><h3>' + escapeHtml(item.title) + '</h3><span class="meta">' + escapeHtml(item.section) + ' · ' + escapeHtml(item.fileName || "手动录入") + '</span></div>' +
         '<button class="danger-btn" data-delete="knowledge" data-id="' + item.id + '" type="button">删除</button></header>' +
-        '<p>' + escapeHtml(item.summary || "暂无摘要。") + '</p>' +
-        '<div class="analysis-box"><strong>拔高预测提示</strong><p>结合近三到五年趋势，可重点检查：是否从单一公式转向综合判断、是否从记忆考点转向情境应用、是否出现行政执法或基层治理场景化表达。</p></div>' +
+        '<p>' + escapeHtml(item.summary || "") + '</p>' +
+        '<div class="analysis-box"><strong>趋势预测提示</strong><p>结合近三到五年趋势，重点检查：是否从单一公式转向综合判断、是否从记忆考点转向情境应用、是否出现行政执法或基层治理场景化表达。</p></div>' +
         '</article>';
     }).join("");
     bindDeleteButtons();
   }
 
   function renderTips() {
-    var weak = sections.map(function (section) {
-      return { section: section, mastery: getMastery(section).percent };
+    var weak = sections.map(function (s) {
+      return { section: s, mastery: getMastery(s).percent };
     }).sort(function (a, b) { return a.mastery - b.mastery; }).slice(0, 3);
 
-    var tips = weak.map(function (item) {
-      return item.section + "当前掌握度 " + item.mastery + "%，建议优先用 5 题一组做限时训练，错题必须补“避坑点”。";
+    var tips = weak.map(function (w) {
+      return w.section + "掌握度 " + w.mastery + "%，建议优先做5题一组限时训练，错题补避坑点。";
     });
     if (state.mistakes.length > 0) {
-      tips.push("错题复盘已有 " + state.mistakes.length + " 条，建议每晚只重看同一错因的 3 条，避免泛泛浏览。");
+      tips.push("错题已有" + state.mistakes.length + "条，建议每晚只看同一错因的3条。");
     }
-    document.getElementById("reviewTips").innerHTML = tips.map(function (tip) {
-      return "<li>" + escapeHtml(tip) + "</li>";
+    tips.push("时政热点每天更新，建议每天至少精读一条并背诵金句。");
+    document.getElementById("reviewTips").innerHTML = tips.map(function (t) {
+      return "<li>" + escapeHtml(t) + "</li>";
     }).join("");
   }
 
@@ -433,48 +432,43 @@
     if (!el || typeof echarts === "undefined") return;
     if (!radarChart) radarChart = echarts.init(el, null, { renderer: "svg" });
 
-    var style = getComputedStyle(document.documentElement);
-    var accent = style.getPropertyValue("--accent").trim();
-    var accent2 = style.getPropertyValue("--accent2").trim();
-    var ink = style.getPropertyValue("--ink").trim();
-    var muted = style.getPropertyValue("--muted").trim();
+    var st = getComputedStyle(document.documentElement);
+    var accent = st.getPropertyValue("--accent").trim();
+    var accent2 = st.getPropertyValue("--accent2").trim();
+    var muted = st.getPropertyValue("--muted").trim();
 
     radarChart.setOption({
       animation: false,
-      color: [accent],
       tooltip: { appendToBody: true },
       radar: {
-        radius: "66%",
-        indicator: sections.map(function (section) {
-          return { name: section, max: 100 };
-        }),
-        axisName: { color: muted, fontWeight: 700 },
-        splitLine: { lineStyle: { color: "rgba(37, 99, 235, 0.16)" } },
-        splitArea: { areaStyle: { color: ["rgba(37, 99, 235, 0.03)", "rgba(56, 189, 248, 0.05)"] } },
-        axisLine: { lineStyle: { color: "rgba(37, 99, 235, 0.16)" } }
+        radius: "62%",
+        indicator: sections.map(function (s) { return { name: s, max: 100 }; }),
+        axisName: { color: muted, fontSize: 12, fontWeight: 700 },
+        splitLine: { lineStyle: { color: "rgba(37,99,235,0.15)" } },
+        splitArea: { areaStyle: { color: ["rgba(37,99,235,0.03)", "rgba(56,189,248,0.05)"] } },
+        axisLine: { lineStyle: { color: "rgba(37,99,235,0.15)" } }
       },
       series: [{
         type: "radar",
         data: [{
-          name: "掌握度",
-          value: sections.map(function (section) { return getMastery(section).percent; }),
-          areaStyle: { color: "rgba(37, 99, 235, 0.18)" },
+          value: sections.map(function (s) { return getMastery(s).percent; }),
+          areaStyle: { color: "rgba(37,99,235,0.18)" },
           lineStyle: { color: accent, width: 3 },
           itemStyle: { color: accent2 }
         }],
-        label: { show: true, color: ink, formatter: "{c}%" }
+        label: { show: true, fontSize: 11, formatter: "{c}%" }
       }]
     });
-    window.addEventListener("resize", function () { radarChart.resize(); }, { once: true });
+    window.addEventListener("resize", function () { if (radarChart) radarChart.resize(); }, { once: true });
   }
 
   function getMastery(section) {
-    var item = state.mastery[section] || { total: 0, correct: 0 };
-    var percent = item.total ? Math.round((item.correct / item.total) * 100) : 20;
-    var starCount = Math.max(1, Math.min(5, Math.ceil(percent / 20)));
+    var m = state.mastery[section] || { total: 0, correct: 0 };
+    var pct = m.total ? Math.round((m.correct / m.total) * 100) : 20;
+    var stars = Math.max(1, Math.min(5, Math.ceil(pct / 20)));
     return {
-      percent: percent,
-      stars: "★★★★★".slice(0, starCount) + "☆☆☆☆☆".slice(0, 5 - starCount)
+      percent: pct, correct: m.correct, total: m.total,
+      stars: "★".repeat(stars) + "☆".repeat(5 - stars)
     };
   }
 
@@ -484,12 +478,12 @@
         var key = btn.dataset.delete;
         var id = btn.dataset.id;
         state[key] = state[key].filter(function (item) { return item.id !== id; });
-        saveState();
-        renderAll();
+        saveState(); renderAll();
       };
     });
   }
 
+  /* ===== 训练 ===== */
   function startPractice() {
     var section = document.getElementById("practiceSectionFilter").value;
     var type = document.getElementById("practiceTypeFilter").value;
@@ -500,64 +494,59 @@
     var box = document.getElementById("practiceBox");
 
     if (selected.length === 0) {
-      box.innerHTML = '<div class="result-box">当前筛选条件下暂无题目，请先新增题目或切换题型。</div>';
+      box.innerHTML = '<div class="result-box"><p>当前筛选条件下暂无题目，请切换板块或题型。</p></div>';
       return;
     }
 
-    box.innerHTML = '<form id="practiceForm" class="form-card"><h3>本组训练：' + selected.length + ' 题</h3>' +
-      selected.map(function (q, index) {
+    box.innerHTML = '<form id="practiceForm" class="form-card"><h3>本组训练：' + selected.length + '题</h3>' +
+      selected.map(function (q, i) {
         return '<article class="question-card">' +
-          '<p><strong>第 ' + (index + 1) + ' 题｜' + escapeHtml(q.section) + ' · ' + escapeHtml(q.type) + '</strong></p>' +
-          '<p>' + escapeHtml(q.stem) + '</p>' +
-          '<div class="option-list">' + ["A", "B", "C", "D"].map(function (letter) {
-            return '<label><input type="radio" name="' + q.id + '" value="' + letter + '" required /> ' + letter + '. ' + escapeHtml(q.options[letter]) + '</label>';
-          }).join("") + '</div>' +
-          '</article>';
+          '<p><strong>第' + (i + 1) + "题｜" + escapeHtml(q.section) + " · " + escapeHtml(q.type) + "</strong></p>" +
+          "<p>" + escapeHtml(q.stem) + "</p>" +
+          '<div class="option-list">' + ["A", "B", "C", "D"].map(function (L) {
+            return '<label><input type="radio" name="' + q.id + '" value="' + L + '" required /> ' + L + ". " + escapeHtml(q.options[L]) + "</label>";
+          }).join("") + "</div></article>";
       }).join("") +
-      '<button class="primary-btn" type="submit">提交本组答案并查看解析</button></form>';
+      '<button class="primary-btn full" type="submit">提交答案并查看解析</button></form>';
 
-    document.getElementById("practiceForm").addEventListener("submit", function (event) {
-      event.preventDefault();
-      submitPractice(selected, new FormData(event.target));
+    document.getElementById("practiceForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      submitPractice(selected, new FormData(e.target));
     });
   }
 
   function submitPractice(questions, answers) {
-    var resultHtml = [];
+    var html = [];
     var correctCount = 0;
 
-    questions.forEach(function (q, index) {
-      var userAnswer = answers.get(q.id);
-      var correct = userAnswer === q.answer;
-      if (correct) correctCount += 1;
+    questions.forEach(function (q, i) {
+      var ua = answers.get(q.id);
+      var correct = ua === q.answer;
+      if (correct) correctCount++;
       if (!state.mastery[q.section]) state.mastery[q.section] = { total: 0, correct: 0 };
-      state.mastery[q.section].total += 1;
-      if (correct) state.mastery[q.section].correct += 1;
+      state.mastery[q.section].total++;
+      if (correct) state.mastery[q.section].correct++;
 
       if (!correct) {
         state.mistakes.unshift({
-          id: uid("mistake"),
-          date: today,
-          auto: true,
-          section: q.section,
-          type: q.type,
-          stem: q.stem,
+          id: uid("mistake"), date: today, auto: true,
+          section: q.section, type: q.type, stem: q.stem,
           reason: inferReason(q.section, q.type),
-          pitfall: "下次先识别题型限定与核心提示，不要被相似选项、无关数字或材料细节带偏。",
-          correctPath: q.fastTip + "；再按解析完成完整推导。"
+          pitfall: "下次先识别题型限定与核心提示，不要被相似选项或无关数字带偏。",
+          correctPath: q.fastTip + "；再按解析完成推导。"
         });
       }
 
-      resultHtml.push('<article class="question-card">' +
-        '<p><strong>第 ' + (index + 1) + ' 题：' + (correct ? "答对" : "答错") + '</strong></p>' +
-        '<div class="tag-row"><span class="tag">你的答案：' + escapeHtml(userAnswer) + '</span><span class="tag">正确答案：' + escapeHtml(q.answer) + '</span><span class="tag">考场提示：' + escapeHtml(q.fastTip) + '</span></div>' +
-        '<div class="result-box"><strong>解析</strong><p>' + escapeHtml(q.explain) + '</p></div>' +
-        '</article>');
+      html.push('<article class="question-card">' +
+        "<p><strong>第" + (i + 1) + "题：" + (correct ? "✅ 答对" : "❌ 答错") + "</strong></p>" +
+        '<div class="tag-row"><span class="tag">你的答案：' + escapeHtml(ua) + "</span><span class=\"tag\">正确答案：" + escapeHtml(q.answer) + "</span></div>" +
+        '<div class="result-box"><strong>考场提示</strong><p>' + escapeHtml(q.fastTip) + "</p>" +
+        "<strong>解析</strong><p>" + escapeHtml(q.explain) + "</p></div></article>");
     });
 
     saveState();
-    document.getElementById("practiceBox").innerHTML = '<div class="form-card"><h3>本组得分：' + correctCount + '/' + questions.length + '</h3>' + resultHtml.join("") + '</div>';
-    renderMetrics();
+    document.getElementById("practiceBox").innerHTML = '<div class="form-card"><h3>本组得分：' + correctCount + "/" + questions.length + "</h3>" + html.join("") + "</div>";
+    renderBadges();
     renderMistakes();
     renderTaxonomy();
     renderTips();
@@ -571,79 +560,79 @@
     return "审题遗漏";
   }
 
-  function shuffle(arr) {
-    return arr.slice().sort(function () { return Math.random() - 0.5; });
-  }
+  function shuffle(arr) { return arr.slice().sort(function () { return Math.random() - 0.5; }); }
+
+  /* ===== 预填充数据 ===== */
 
   function seedHotspots(date) {
     return [
       {
-        id: uid("hot"),
-        date: date,
-        auto: true,
-        title: "基层治理从“被动响应”走向“主动服务”",
-        source: "示例来源：请替换为当天权威媒体或政府公开信息链接",
-        stem: "基层治理不能停留在问题出现后的被动处置，而要通过数据共享、网格协同与群众参与，把服务做在诉求形成之前。",
-        logic: "转折",
-        vocab: ["被动响应", "主动服务", "协同治理", "诉求前置"],
-        analysis: "“不能……而要……”构成反向转折，前半句否定滞后处置，后半句强调主动前置。逻辑填空应优先选择能体现治理方式升级、服务关口前移的词。",
-        quote: "治理的温度，往往体现在问题尚未扩大之前的及时抵达。",
-        countermeasure: "完善基层数据共享机制，推动网格、社区、执法和公共服务力量协同下沉，形成早发现、早研判、早处置闭环。"
-      },
-      {
-        id: uid("hot"),
-        date: date,
-        auto: true,
-        title: "行政执法更重规范化、透明化与柔性治理",
-        source: "示例来源：请替换为当天法治政府建设相关信息",
-        stem: "执法既要有力度，也要有尺度和温度；只有把程序规范、裁量基准和释法说理贯穿全过程，才能让群众感受到公平正义。",
-        logic: "并列",
-        vocab: ["规范执法", "柔性治理", "裁量基准", "释法说理"],
-        analysis: "“力度、尺度、温度”是并列递进式表达，后文“只有……才能……”强调必要条件。选词时要同时兼顾依法、规范、服务三个语义面。",
-        quote: "执法的公信力，不只来自结果正确，也来自过程可见、尺度可感。",
-        countermeasure: "细化行政裁量基准，强化全过程记录和释法说理，推动严格规范公正文明执法。"
-      },
-      {
-        id: uid("hot"),
-        date: date,
-        auto: true,
-        title: "数字化能力成为公共服务提质的重要支点",
-        source: "示例来源：请替换为当天数字政府或公共服务报道",
-        stem: "数字技术不是简单把线下流程搬到线上，而是要以群众需求为中心，重塑流程、压缩环节、提升体验。",
+        id: uid("hot"), date: date, auto: true,
+        title: "促进团结奋斗 汇聚磅礴力量——习近平总书记对侨务工作作出重要指示",
+        source: "人民日报评论员文章（2026年7月29日）",
+        stem: "侨务工作是党和国家的一项长期性战略性工作。越是朝着强国建设、民族复兴的目标砥砺前行，越要把广大海外侨胞和归侨侨眷紧密团结起来、力量____起来。",
         logic: "递进",
-        vocab: ["数字政府", "流程再造", "群众需求", "服务体验"],
-        analysis: "“不是……而是……”先排除表层线上化，再推进到流程再造。空格若考查中心词，应选择比“搬运、复制”更高阶的“重塑、再造、优化”。",
-        quote: "数字化的价值，不在于多一个入口，而在于少一道门槛。",
-        countermeasure: "以高频事项为牵引推进流程再造，减少重复填报和多头办理，提升跨部门协同效率。"
+        vocab: ["凝聚侨心", "磅礴力量", "团结奋斗", "血脉相连", "长期性战略性"],
+        analysis: "“越是……越要……”构成递进关系，前后语义同向加重。空处需填入与“团结”语义一致、且能搭配“力量”的动词。“汇聚”比“集中”更强调由散到合的过程，比“聚集”更书面化，符合政论语体。",
+        quote: "潮起海天阔，同心向复兴。新征程上，更好凝聚侨心侨力、促进海内外中华儿女团结奋斗，定能为以中国式现代化全面推进强国建设、民族复兴伟业汇聚磅礴力量。",
+        countermeasure: "坚持为大局服务和为侨服务相统一；用好地缘、亲缘、文缘纽带；完善侨务政策法规，维护侨益；发挥侨胞在共建“一带一路”中的桥梁作用。"
+      },
+      {
+        id: uid("hot"), date: date, auto: true,
+        title: "莫把群众求助当作负面舆情——河南瓜农滞销事件的治理启示",
+        source: "人民日报评论（2026年7月27日）",
+        stem: "面对瓜农的求助信息，村工作人员的第一反应不是下地看烂了多少，不是联系商超找买家，____要求村民“撤回求助信”。不解忧，先堵嘴。不帮忙，反添乱。",
+        logic: "转折",
+        vocab: ["滞销", "舆情", "懒政", "制度托底", "产销对接"],
+        analysis: "“不是……不是……____”构成反向并列后转折，前两个“不是”排除正常做法，空处应填入与预期相反的动作。“而是”最契合：本该帮忙却选择堵嘴，形成强烈转折。考生需注意“而是”与“而是”的辨析——此处强调行为反转而非因果。",
+        quote: "把群众求助当“负面舆情”，本质上是懒政，怕麻烦、怕担责、怕出事。真正把民生疾苦放在心上，把群众诉求落到实处，才能让问题变得不再是问题。",
+        countermeasure: "加快建设农产品监测预警系统，利用大数据完善产量预测模型；建立产销对接常态化机制；畅通群众诉求表达渠道，把求助信息作为治理信号而非负面舆情。"
+      },
+      {
+        id: uid("hot"), date: date, auto: true,
+        title: "把善心变成善治——杭州余量食物公益项目的制度启示",
+        source: "人民日报纵论（2026年7月8日）",
+        stem: "政企合作有针对性地弥补了短板，把善心变成善治，让善意拥有更长久的生命力。制度设计让捐助者能够“持续捐赠”，“盲盒+小程序”____让受助者“体面领取”。",
+        logic: "并列",
+        vocab: ["善治", "余量食物", "政企合作", "体面领取", "制度设计"],
+        analysis: "“让捐助者……”“____让受助者……”构成并列结构，前后主语不同但句式对称。空处需填入连接手段，“则”表示并列中的对比关系，比“就”更正式，比“还”更强调两方面并重。考点：并列关联词的语体色彩与语义轻重。",
+        quote: "慈善的细节里，藏着一座城市的细致与温度。保留食品原包装、监管部门定期抽检、“智能柜+小程序”打通全流程，让每一份食物的来源、去向可监控、可查实。",
+        countermeasure: "推动政企合作弥补公共服务短板；用数字化手段打通资格核验、取餐、溯源全流程；注重受助者尊严保护；建立余量食物捐赠的制度化通道和监管机制。"
       }
-    ];
-  }
-
-  function seedQuestions() {
-    return [
-      q("言语", "逻辑填空-转折", "原创示例｜参照国省考命题风格", "公共服务不能只追求速度，____忽视公平；数字化改革要让更多群体共享便利，而不是制造新的门槛。", ["更不能", "却可以", "甚至要", "也无需"], "A", "先看“不能只……____忽视”，空处应承接更强否定。", "空前否定单一追求速度，空后否定忽视公平，构成递进否定，A项“更不能”最能体现语义加重。"),
-      q("判断", "逻辑推理一拖五", "原创示例｜行政执法场景", "某执法队检查甲乙丙丁四类场所，已知：若检查甲则检查乙；检查丙则不检查乙；丁和甲至少检查一个。若乙未检查，以下必然为真的是？", ["甲检查", "丙不检查", "丁检查", "甲和丁都检查"], "C", "乙未检查先逆否：检查甲→检查乙，所以甲不检查；再由丁和甲至少一个推出丁检查。", "由“甲→乙”和“乙未检查”可得甲未检查；又因丁或甲至少一个，甲未检查则丁检查。"),
-      q("资料", "增长率", "原创示例｜资料分析公式", "某市2025年行政服务办件量为132万件，比2024年增加12万件。2025年同比增长率约为？", ["8.3%", "9.1%", "10.0%", "12.0%"], "C", "增长率=增长量/基期量，基期=132-12=120，12/120=10%。", "资料分析先找基期量，2024年为120万件，增长率为12÷120=10%。"),
-      q("资料", "比重变化", "原创示例｜资料分析公式", "某地区线上办理量增长20%，总办理量增长10%。若去年线上办理占比为30%，今年线上办理占比变化趋势为？", ["上升", "下降", "不变", "无法判断"], "A", "部分增长率大于整体增长率，比重上升。", "判断比重变化只比较部分增长率与整体增长率。20%＞10%，所以线上办理占比上升。"),
-      q("常识", "行政法常识", "原创示例｜行政执法", "行政机关作出影响相对人权益的行政处罚前，通常应保障相对人的哪项程序性权利？", ["知情与陈述申辩", "无限期复议", "自行变更处罚", "拒绝履行所有决定"], "A", "行政执法题先抓“程序性权利”，常见为告知、陈述、申辩、听证。", "行政处罚前应依法告知事实、理由、依据，并保障陈述申辩等程序性权利。"),
-      q("政治理论", "依法治国", "原创示例｜政治理论", "推进法治政府建设，关键是把政府活动全面纳入什么轨道？", ["法治", "经验", "运动式治理", "单一效率"], "A", "政治理论题抓关键词“法治政府”，核心搭配是政府活动全面纳入法治轨道。", "法治政府建设强调依法行政，把政府活动全面纳入法治轨道。"),
-      q("数量", "工程问题", "原创示例｜数量关系", "甲单独完成一项工作需12天，乙需18天。两人合作3天后，剩余工作量为？", ["1/2", "7/12", "1/3", "1/4"], "B", "效率相加：1/12+1/18=5/36，3天完成5/12，剩余7/12。", "两人合作效率为5/36，3天完成15/36=5/12，剩余工作量为7/12。"),
-      q("判断", "定义判断", "原创示例｜判断推理", "“包容审慎监管”指对新业态在守住安全底线前提下给予合理试错空间。下列最符合的是？", ["对轻微首次违规教育提醒并限期改正", "对所有违规一律顶格处罚", "不再监管新业态", "只监管传统行业"], "A", "定义判断先圈核心：新业态、安全底线、合理试错。", "A项既保留监管底线，又体现教育提醒和改正空间，符合定义。")
     ];
   }
 
   function q(section, type, source, stem, options, answer, fastTip, explain) {
     return {
-      id: uid("q"),
-      section: section,
-      type: type,
-      source: source,
-      stem: stem,
+      id: uid("q"), section: section, type: type, source: source, stem: stem,
       options: { A: options[0], B: options[1], C: options[2], D: options[3] },
-      answer: answer,
-      fastTip: fastTip,
-      explain: explain
+      answer: answer, fastTip: fastTip, explain: explain
     };
+  }
+
+  function seedQuestions() {
+    /* 合并所有题库分卷文件（question-bank-1.js ~ question-bank-7.js）
+       每个文件挂载到 window.QUESTION_BANK_PARTn 数组上 */
+    var parts = [];
+    for (var i = 1; i <= 7; i++) {
+      var bank = window["QUESTION_BANK_PART" + i];
+      if (Array.isArray(bank)) {
+        bank.forEach(function (item) {
+          parts.push({
+            id: uid("q"),
+            section: item.section,
+            type: item.type,
+            source: item.source,
+            stem: item.stem,
+            options: { A: item.options.A, B: item.options.B, C: item.options.C, D: item.options.D },
+            answer: item.answer,
+            fastTip: item.fastTip,
+            explain: item.explain
+          });
+        });
+      }
+    }
+    return parts;
   }
 
   function seedEssays() {
@@ -651,24 +640,57 @@
       {
         id: uid("essay"),
         type: "归纳概括",
-        source: "原创示例｜行政执法卷训练模板",
-        prompt: "概括基层执法服务中存在的问题。",
+        source: "模拟题（参照2020-2026国考行政执法卷风格）",
+        prompt: "根据给定材料，概括当前基层执法服务中存在的主要问题。",
         paragraph: "材料一第2段",
-        sentence: "群众反映窗口多头跑、材料重复交、办理进度不透明。",
-        keyword: "多头跑、重复交、不透明",
-        reason: "三个词分别对应流程繁、材料重、信息不公开，是问题类答案的直接得分点。",
-        answer: "办事流程不够集成，材料重复提交，办理进度公开不足。"
+        sentence: "群众反映窗口多头跑、材料重复交、办理进度不透明，部分事项需跨部门核验但系统尚未打通。",
+        keyword: "多头跑、重复交、不透明、系统未打通",
+        reason: "题干要求概括“问题”，该句直接列举了四类问题表现，每个词对应一个独立的问题维度，是问题类答案的直接得分点。",
+        answer: "1.办事流程不够集成，群众需多头跑动；2.材料重复提交，增加群众负担；3.办理进度公开不足，信息不透明；4.跨部门核验机制不健全，系统未完全打通。"
       },
       {
         id: uid("essay"),
         type: "提出对策",
-        source: "原创示例｜行政执法卷训练模板",
-        prompt: "就提升基层政务服务水平提出建议。",
-        paragraph: "材料二第4段",
-        sentence: "部分事项需跨部门核验，但系统尚未完全打通。",
-        keyword: "跨部门核验、系统未打通",
-        reason: "问题指向部门协同和数据共享不足，可反推对策。",
-        answer: "推进跨部门数据共享和业务协同，打通高频事项核验链路，减少群众重复提交。"
+        source: "模拟题（参照2020-2026国考行政执法卷风格）",
+        prompt: "针对材料中反映的基层执法服务问题，提出改进建议。",
+        paragraph: "材料二第3段、第5段",
+        sentence: "部分基层执法人员服务意识不足，存在重处罚轻教育现象；同时数字化平台建设滞后，数据共享不畅。",
+        keyword: "服务意识不足、重处罚轻教育、数字化滞后、数据共享不畅",
+        reason: "问题反推对策：服务意识不足→加强培训教育；重处罚轻教育→推行柔性执法；数字化滞后→加快平台建设；数据共享不畅→打破信息壁垒。",
+        answer: "1.加强执法队伍服务意识培训，树立执法为民理念；2.推行包容审慎监管和柔性执法，落实首违不罚；3.加快数字化平台建设，推进一网通办；4.建立跨部门数据共享机制，打通信息壁垒。"
+      },
+      {
+        id: uid("essay"),
+        type: "综合分析",
+        source: "模拟题（参照2020-2026国考行政执法卷风格）",
+        prompt: "请分析“执法既要有力度，也要有温度”这句话的内涵。",
+        paragraph: "材料三第4段",
+        sentence: "执法既要有力度，也要有尺度和温度；只有把程序规范、裁量基准和释法说理贯穿全过程，才能让群众感受到公平正义。",
+        keyword: "力度、尺度、温度、程序规范、释法说理",
+        reason: "分析题需拆解关键词并回扣材料。力度=依法严格执法；尺度=裁量基准规范；温度=教育提醒和人性化执法。三者构成递进关系。",
+        answer: "“力度”指依法严格执法，维护法律权威；“尺度”指规范裁量权，做到过罚相当；“温度”指人性化执法，注重教育和疏导。三者统一于严格规范公正文明执法的全过程，程序规范是保障，释法说理是桥梁，最终让群众在每一起执法案件中感受到公平正义。"
+      },
+      {
+        id: uid("essay"),
+        type: "贯彻执行",
+        source: "模拟题（参照2020-2026国考行政执法卷风格）",
+        prompt: "假如你是某区执法局工作人员，请根据材料，撰写一份关于推进柔性执法的工作方案提纲。",
+        paragraph: "材料四第1段至第3段",
+        sentence: "上级要求各地推行包容审慎监管，建立免罚清单制度，加强执法全过程说理。",
+        keyword: "包容审慎、免罚清单、全过程说理",
+        reason: "贯彻执行题需明确文种（工作方案）、格式要素和正文结构。材料给出了核心措施：免罚清单、全过程说理，需在此基础上补充目标、步骤和保障。",
+        answer: "关于推进柔性执法的工作方案提纲\n一、工作目标：推行包容审慎监管，优化营商环境，提升执法公信力。\n二、主要措施：1.制定并公布免罚清单，明确首违不罚情形；2.推行执法全过程释法说理；3.建立裁量基准动态调整机制；4.加强执法人员柔性执法培训。\n三、实施步骤：动员部署→清单制定→试点推行→全面推广。\n四、保障措施：加强组织领导，强化监督考核，定期评估完善。"
+      },
+      {
+        id: uid("essay"),
+        type: "文章写作",
+        source: "模拟题（参照2020-2026国考行政执法卷风格）",
+        prompt: "请结合给定材料，以“把善心变成善治”为主题，写一篇议论文。",
+        paragraph: "材料五全文",
+        sentence: "政企合作有针对性地弥补了短板，把善心变成善治，让善意拥有更长久的生命力。慈善的细节里，藏着一座城市的细致与温度。",
+        keyword: "善心、善治、制度设计、政企合作、温度",
+        reason: "大作文需从材料提炼立意：善心是出发点，善治是落脚点，制度设计是桥梁。论点应回扣材料主线，论证用案例+政策+对策三类支撑。",
+        answer: "立意：把善心变成善治，制度设计是关键桥梁。\n分论点一：善心是治理的温度底色，需要被呵护和激发（材料案例：爱心企业捐赠余量食物）。\n分论点二：善治是善心的制度化升华，让善意可持续（材料案例：智能柜+小程序打通全流程，受助者体面领取）。\n分论点三：从善心到善治，需要政企协同和制度创新（对策：完善制度供给、数字化赋能、注重尊严保护）。\n金句：慈善的细节里，藏着一座城市的细致与温度；善治的制度里，蕴含着一个社会的智慧与担当。"
       }
     ];
   }
@@ -676,12 +698,25 @@
   function seedKnowledge() {
     return [
       {
-        id: uid("know"),
-        date: today,
+        id: uid("know"), date: today,
         title: "资料分析核心公式速查",
         section: "资料",
         fileName: "内置示例",
-        summary: "增长率=增长量/基期量；增长量=现期量-基期量；基期量=现期量/(1+增长率)；比重=部分/整体；比重变化比较部分增长率与整体增长率；平均数=总量/份数。"
+        summary: "增长率=增长量/基期量；增长量=现期量-基期量；基期量=现期量/(1+增长率)；比重=部分/整体；比重变化：部分增速>整体增速→比重上升；平均数=总量/份数；倍数=A/B。速算技巧：特殊分数转化（1/6≈16.7%，1/7≈14.3%，1/8=12.5%，1/9≈11.1%）。"
+      },
+      {
+        id: uid("know"), date: today,
+        title: "逻辑填空高频关联词体系",
+        section: "言语",
+        fileName: "内置示例",
+        summary: "递进：不仅…而且…、甚至、更、尤其；转折：虽然…但是…、然而、可是、却；并列：既…也…、一方面…另一方面…、同时；因果：因为…所以…、因此、导致；解释说明：也就是说、即、换句话说。做题步骤：1.圈关联词→2.判断逻辑关系→3.找提示信息→4.排除干扰→5.对比剩余选项。"
+      },
+      {
+        id: uid("know"), date: today,
+        title: "行政执法卷申论能力框架",
+        section: "政治理论",
+        fileName: "内置示例",
+        summary: "六大能力：依法办事能力、群众工作能力、基层治理能力、公共服务能力、问题解决能力、规范表达能力。五大题型：归纳概括（找要点，保留材料原词）、提出对策（问题反推，四维补足）、综合分析（亮观点，拆关键词）、贯彻执行（格式服从题干，按对象-问题-措施-效果）、文章写作（立意来自材料主线，论证用案例+政策+对策）。"
       }
     ];
   }
